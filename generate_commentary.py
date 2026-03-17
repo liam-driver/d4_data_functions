@@ -12,6 +12,7 @@ def generate_commentary(client):
             "plans_90_day": client['plan_json'],
             "paid_data": client['llm_data'],
             "overall_data": client['overall_data'],
+            "paid_data_90_day": client['timeseries_data'],
             "report_start_date": client['start_date_string'],
             "report_end_date": client['end_date_string'],
             "monthly_budget": client['budget'],
@@ -65,6 +66,14 @@ def generate_commentary(client):
                     },
                     "required": ["summary"],
                 },
+                "ninety_day_overview": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "summary": {"type": "string"},
+                    },
+                    "required": ["summary"],
+                },
                 "performance_points": {
                     "type": "array",
                     "minItems": 4,
@@ -80,7 +89,7 @@ def generate_commentary(client):
                     },
                 },
             },
-            "required": ["plan_overview", "performance_overview", "performance_points"],
+            "required": ["plan_overview", "performance_overview", "ninety_day_overview", "performance_points"],
         },
         "strict": True,
     }
@@ -117,6 +126,7 @@ def generate_commentary(client):
             "- plans_90_day: this is a json object that contains the plans for the current period as well as the plans from previous periods, giving you context on what we have done and what we are planning to do.\n"
             "- paid_data: this is a json object that has all of the ppc data (e.g. Google ads) from the current period, compared to our comparison period. This has the data that we need to translate into insights, so it is the most importnat variable that you should factor in"
             "- overall_data: this is a json object that has the overall site data, taken from GA4, from the current period, compared to our comparison period. This should be used for extra context for paid data so that we can compare it to other channels, like Organic, and lets us review how holistic plans are performing\n"
+            "- paid_data_90_day: this is the paid data broken down by week number to give a view of how the data has fluctuated over the past 90 days"
             "- report_start_date: This is the date where the reporting period begins/\n"
             "- report_end_date: This is the date where the reporting period ends\n"
             "- monthly_budget: this is the monthly budget for the current reporting period\n"
@@ -165,7 +175,10 @@ def generate_commentary(client):
                             "- When bringing in actual data from paid_data and overall_data, only use data that explicitly aligns with the kpis that have been given to you is the 'kpis' secion.\n"
                             "- You are allowed to use data to back up the statements, but be sparing, this is a quick human readable paaragraph for stakeholders\n"
                             "- Include a sentence on current spend to date. Use cost_to_date for the total spend this month, run_rate to see what the predicted cost at the end of the month, and budget to find the monthly budget for the client.\n"
-                        "3) performance_points: \n"
+                        "3) ninety day summary\n"
+                            "- A 2-4 sentence summary of paid_data_90_day that just gives a top level overview of performance data over the past 90 days. We don't want specifics, we just want a view of the trends in the past 90 days"
+                            "- Don't make it metric soup, just focus on the main KPI for the client (e.g. Transaction Revneue) and give an overview on how it has changed and what has driven the change"
+                        "4) performance_points: \n"
                             "Goal: produce high-signal points that explain what’s happening by ad channel (use paid_data at the ad channel level, not ad platform - do not use overall_data to create specific points), points must be centred around the metric groups below, we must absolutely not use specific metrics as the main theme of the point\n"
                             "- Use only these metric groups as the theme for a point (do not create points about single metrics) "
                                 "- Volume: Impressions, Clicks, Cost, Views, Thruplays, Conversions, Transactions, Transaction Revenue"

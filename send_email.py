@@ -34,4 +34,4 @@ def send_email(client):
         smtp.starttls()
         smtp.ehlo()
         smtp.login(wr_email, wr_password)
-        smtp.sendmail(wr_email, secrets["send_email"], msg.as_string()) 
+        smtp.sendmail(wr_email, secrets["send_email_test"], msg.as_string()) 

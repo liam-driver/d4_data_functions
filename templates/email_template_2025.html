@@ -24,6 +24,13 @@
     </li>
   </ul>
   <br>
+  <p><b>90 Day Overview: </b></p>
+  <ul>
+    <li>
+      {{client.commentary.ninety_day_overview.summary}}
+    </li>
+  </ul>
+  <br>
   <p><b>Insights: </b></p>
     {% for point in client.commentary.performance_points %}
       {{ loop.index }}) {{point.title}}
@@ -54,11 +61,11 @@
   <p><b>Cost:</b></p>
   <ul>
     <li> Cost: {{ client.paid_data.Total.Cost.curr}} </li>
-    {% if client.paid_data.Total.Cost.curr != client.run_rate %}
-      <li> Run Rate: {{ client.run_rate }} </li>
-    {% endif %}
     {% if client.budget != '' %}
     <li> Budget: £{{ client.budget }} </li>
+    {% endif %}
+    {% if client.run_rate != '-' %}
+      <li> Run Rate: {{ client.run_rate }} </li>
     {% endif %}
   </ul>
 </body>

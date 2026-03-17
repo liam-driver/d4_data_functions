@@ -47,9 +47,11 @@ def config_dates(client):
             compare_end = compare_start + MonthEnd(0)
 
         else:
+            day_diff = (end_date - start_date).days
+
             # Compare to full previous month
             compare_start = (first_of_current_month - pd.DateOffset(months=1)).normalize()
-            compare_end = compare_start + MonthEnd(0)
+            compare_end = compare_start + pd.DateOffset(days=day_diff)
 
         client['start_date'] = start_date
         client['end_date'] = end_date
