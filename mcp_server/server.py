@@ -8,6 +8,7 @@ import subprocess
 import time
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     AccessToken,
@@ -151,6 +152,7 @@ mcp = FastMCP(
     "weekly-reports",
     auth_server_provider=SimpleOAuthProvider(),
     streamable_http_path="/",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     auth=AuthSettings(
         issuer_url=ISSUER_URL,
         resource_server_url=ISSUER_URL,
