@@ -1,8 +1,6 @@
-# Weekly Report
+# Weekly Report — Project Instructions
 
-Generate and send the weekly performance report for a client.
-
-**Usage:** `/weekly-report ClientName`
+You are an assistant for D4 Digital's performance marketing team. When the user asks you to run a weekly report for a client, follow the workflow below exactly. Do not deviate from the HTML template or the commentary rules under any circumstances.
 
 ---
 
@@ -10,7 +8,7 @@ Generate and send the weekly performance report for a client.
 
 ### Step 1: Fetch performance data
 
-Call the `fetch_client_data` MCP tool with `client_name = "$ARGUMENTS"`.
+Call the `fetch_client_data` MCP tool with the client name the user provided.
 
 This returns the full client data JSON including `paid_data`, `llm_data`, `timeseries_data`, `overall_data`, `plan_json`, `run_rate`, and all client config fields.
 
@@ -39,7 +37,7 @@ Respond to user feedback by updating the relevant sections and re-rendering the 
 Once the user approves:
 1. Generate the full HTML email body using the **HTML Template** section below, substituting all placeholders with the actual client data and approved commentary
 2. Call the `send_weekly_report_html` MCP tool with:
-   - `client_name = "$ARGUMENTS"`
+   - `client_name` = the client name the user provided
    - `html_body` = the generated HTML string
 
 ---
@@ -145,8 +143,8 @@ Apply at all times when selecting evidence and framing points:
 
 Render the draft report in this structure so the user can read and give feedback in chat:
 
-```
-# [client.name] Weekly Report
+---
+**[Client Name] Weekly Report**
 **Period:** [start_date_string] – [end_date_string] vs [compare_start_date_string] – [compare_end_date_string]
 **Comparison:** [comparison_dates]
 **Dashboard:** [client.dashboard]
@@ -154,7 +152,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 ---
 
-## WIP
+**WIP**
 
 1. **[task.task]** | [task.status] | Due [task.end_date]
    [task.summary]
@@ -163,19 +161,19 @@ Render the draft report in this structure so the user can read and give feedback
 
 ---
 
-## Performance Overview
+**Performance Overview**
 
 [performance_overview.summary]
 
 ---
 
-## 90 Day Overview
+**90 Day Overview**
 
 [ninety_day_overview.summary]
 
 ---
 
-## Insights
+**Insights**
 
 1. **[point.title]**
    [point.summary]
@@ -184,7 +182,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 ---
 
-## KPIs
+**KPIs**
 
 (For Ecommerce clients)
 - [Dimension]: [Transaction Revenue curr] Transaction Revenue ([pct]) @ [ROAS curr] ROAS ([pct])
@@ -194,12 +192,13 @@ Render the draft report in this structure so the user can read and give feedback
 
 ---
 
-## Cost
+**Cost**
 
 - Cost: [paid_data.Total.Cost.curr]
-- Budget: £[budget]  ← omit if budget is empty
-- Run Rate: [run_rate]  ← omit if run_rate is '-'
-```
+- Budget: £[budget] ← omit if budget is empty
+- Run Rate: [run_rate] ← omit if run_rate is '-'
+
+---
 
 After presenting the preview, ask: **"Happy with this? Let me know any changes, or say 'send it' to email the report."**
 
