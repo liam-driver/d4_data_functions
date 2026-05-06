@@ -6,32 +6,41 @@ Generate and send the weekly performance report for a client.
 
 ---
 
-## Steps
+## Workflow
 
-### 1. Fetch performance data
+### Step 1: Fetch performance data
 
 Call the `fetch_client_data` MCP tool with `client_name = "$ARGUMENTS"`.
 
 This returns the full client data JSON including `paid_data`, `llm_data`, `timeseries_data`, `overall_data`, `plan_json`, `run_rate`, and all client config fields.
 
-### 2. Fetch Slack context
+### Step 2: Fetch Slack context
 
-Read `slack_channel_id` from the client data. If it is set, use the Slack MCP to:
+Read `slack_channel_id` from the client data. If set, use the Slack MCP to:
 - Get the channel topic and purpose from channel info
-- Fetch the last 30 messages from the channel history, filtering out bot messages and any message under 20 characters
+- Fetch the last 30 messages, filtering out bot messages and messages under 20 characters
 - Format as a readable summary: channel topic first, then messages with their dates
 
-If `slack_channel_id` is empty, skip this step and note that no Slack context is available.
+If `slack_channel_id` is empty, skip and note no Slack context is available.
 
-### 3. Generate commentary
+### Step 3: Generate and present draft
 
-Using all the data from step 1 and the Slack context from step 2, generate commentary that matches the exact JSON schema below. Follow all rules in the **Commentary Rules** section.
+Using all data from Step 1 and Slack context from Step 2:
+1. Generate commentary following all rules in the **Commentary Rules** section below
+2. Render a **human-readable markdown preview** of the full report using the **Markdown Preview Format** section below
+3. Output the preview clearly in chat and invite the user to give feedback or approve
 
-### 4. Send the email
+### Step 4: Iterate on feedback
 
-Call the `send_weekly_report` MCP tool with:
-- `client_name = "$ARGUMENTS"`
-- `commentary` = the generated commentary as a JSON string matching the schema below
+Respond to user feedback by updating the relevant sections and re-rendering the full markdown preview. Repeat until the user explicitly approves and asks to send.
+
+### Step 5: Generate HTML and send
+
+Once the user approves:
+1. Generate the full HTML email body using the **HTML Template** section below, substituting all placeholders with the actual client data and approved commentary
+2. Call the `send_weekly_report_html` MCP tool with:
+   - `client_name = "$ARGUMENTS"`
+   - `html_body` = the generated HTML string
 
 ---
 
@@ -103,50 +112,15 @@ Apply at all times when selecting evidence and framing points:
 - Identify the data source for each reference (paid dataset or overall dataset, and which dimension if applicable).
 - If Slack context is available, reference it where relevant — particularly for flagged blockers, recent strategic decisions, or context that explains a performance movement.
 
----
+### Commentary Sections
 
-## Output Schema
-
-Generate a JSON object with exactly this structure:
-
-```json
-{
-  "plan_overview": {
-    "tasks": [
-      {
-        "task": "string",
-        "description": "string",
-        "status": "string",
-        "start_date": "string (dd/mm/yyyy)",
-        "end_date": "string (dd/mm/yyyy)",
-        "summary": "string (one sentence, client-friendly)"
-      }
-    ]
-  },
-  "performance_overview": {
-    "summary": "string (2-4 sentences)"
-  },
-  "ninety_day_overview": {
-    "summary": "string (2-4 sentences)"
-  },
-  "performance_points": [
-    {
-      "title": "string (<Ad Channel> <Metric Group> <Direction>, max ~8 words)",
-      "summary": "string (2-4 sentences)"
-    }
-  ]
-}
-```
-
-### Deliverable Detail
-
-**plan_overview**: For every task in `plans_90_day` that is marked 'current' (not 'old'): output the task name, description, and status as-is; convert start/end dates from ISO to dd/mm/yyyy; write a one-sentence client-friendly summary (no marketing fluff).
+**plan_overview**: For every task in `plans_90_day` marked 'current' (not 'old'): output the task name, description, and status as-is; convert start/end dates from ISO to dd/mm/yyyy; write a one-sentence client-friendly summary (no marketing fluff).
 
 **performance_overview**: 2–4 sentence paragraph comparing `paid_data` and `overall_data` against `holistic_plans` and `paid_plans`. Focus on paid performance, framed within holistic goals. Only use data that aligns with the `kpis`. Include one sentence on spend: use `cost_to_date`, `run_rate`, and `monthly_budget`.
 
 **ninety_day_overview**: 2–4 sentence top-level trend summary from `paid_data_90_day`. No specifics — just trends. Focus on the primary KPI (e.g. Transaction Revenue or CPA) and what has driven the change. No metric soup.
 
-**performance_points** (4–10 items): High-signal points by ad channel using `paid_data` at the channel level (not platform level — do not use `overall_data` for specific points).
+**performance_points** (4–10 items): High-signal points by ad channel using `paid_data` at the channel level.
 - Use only these metric groups as the theme: Volume, Performance, Engagement, Efficiency
 - Apply metric tier hierarchy — lead with Tier 1/2 where available
 - Title format: `<Ad Channel> <Metric Group> <Clear Direction/Outcome>` (~8 words max)
@@ -154,3 +128,143 @@ Generate a JSON object with exactly this structure:
 - Thresholds: only create a point if ≥10% change in a Tier 1/2 metric, or channel is ≥20% of total cost, or a clear multi-metric pattern exists
 - Low-spend channels (<10% of cost): require ≥20% Tier 1/2 change to mention
 - Do not anchor a point solely on Impressions or Clicks
+
+---
+
+## Markdown Preview Format
+
+Render the draft report in this structure so the user can read and give feedback in chat:
+
+```
+# [client.name] Weekly Report
+**Period:** [start_date_string] – [end_date_string] vs [compare_start_date_string] – [compare_end_date_string]
+**Comparison:** [comparison_dates]
+**Dashboard:** [client.dashboard]
+**90 Day Plan:** [client.plan]
+
+---
+
+## WIP
+
+1. **[task.task]** | [task.status] | Due [task.end_date]
+   [task.summary]
+
+(repeat for each current task)
+
+---
+
+## Performance Overview
+
+[performance_overview.summary]
+
+---
+
+## 90 Day Overview
+
+[ninety_day_overview.summary]
+
+---
+
+## Insights
+
+1. **[point.title]**
+   [point.summary]
+
+(repeat for each performance point)
+
+---
+
+## KPIs
+
+(For Ecommerce clients)
+- [Dimension]: [Transaction Revenue curr] Transaction Revenue ([pct]) @ [ROAS curr] ROAS ([pct])
+
+(For Lead Gen clients)
+- [Dimension]: [Conversions curr] Conversions ([pct]) @ [CPA curr] CPA ([pct])
+
+---
+
+## Cost
+
+- Cost: [paid_data.Total.Cost.curr]
+- Budget: £[budget]  ← omit if budget is empty
+- Run Rate: [run_rate]  ← omit if run_rate is '-'
+```
+
+After presenting the preview, ask: **"Happy with this? Let me know any changes, or say 'send it' to email the report."**
+
+---
+
+## HTML Template
+
+When the user approves and asks to send, generate the following HTML exactly, substituting all placeholders with the real values from the client data and approved commentary. Do not add any extra styling, tags, or structure beyond what is shown here.
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+  <p><b>[client.name] Weekly PPC Report: [client.comparison_dates]</b></p>
+  <p><b>Report Date Period:</b> ([client.start_date_string] - [client.end_date_string]) vs ([client.compare_start_date_string] - [client.compare_end_date_string])</p>
+  <br>
+  <p><b>Live Dashboard Link: [client.dashboard]</b></p>
+  <p><b>90 Day Plan: [client.plan]</b></p>
+  <br>
+  <p><b>WIP: </b></p>
+  [Repeat for each current task in plan_overview:]
+    [loop index].) [task.task]
+    <ul>
+      <li>Overview: [task.summary]</li>
+      <li>Status: [task.status]</li>
+      <li>Deadline: [task.end_date]</li>
+    </ul>
+    <br>
+  [End repeat]
+  <p><b>Performance Overview: </b></p>
+  <ul>
+    <li>[performance_overview.summary]</li>
+  </ul>
+  <br>
+  <p><b>90 Day Overview: </b></p>
+  <ul>
+    <li>[ninety_day_overview.summary]</li>
+  </ul>
+  <br>
+  <p><b>Insights: </b></p>
+  [Repeat for each point in performance_points:]
+    [loop index].) [point.title]
+    <ul>
+      <li>[point.summary]</li>
+    </ul>
+    <br>
+  [End repeat]
+  <p><b>KPIs:</b></p>
+  <ul>
+    [Repeat for each dimension in paid_data — for Ecommerce clients:]
+      <li>[dimension]: [Transaction Revenue curr] Transaction Revenue ([Transaction Revenue pct]) @ [ROAS curr] ROAS ([ROAS pct])</li>
+    [For Lead Gen clients:]
+      <li>[dimension]: [Conversions curr] Conversions ([Conversions pct]) @ [CPA curr] CPA ([CPA pct])</li>
+    [End repeat]
+  </ul>
+  <br>
+  <p><b>Cost:</b></p>
+  <ul>
+    <li>Cost: [paid_data.Total.Cost.curr]</li>
+    [Only include if client.budget is not empty:] <li>Budget: £[client.budget]</li>
+    [Only include if client.run_rate is not '-':] <li>Run Rate: [client.run_rate]</li>
+  </ul>
+</body>
+</html>
+```
+
+---
+
+## Client-Specific Overrides
+
+Add any per-client customisations below. Each client section can override commentary rules, adjust which sections are included, or add bespoke instructions that apply only to that client.
+
+<!-- No client-specific overrides yet. Add as needed:
+
+### [Client Name]
+[Description of what's different for this client — e.g. exclude 90 Day Overview, use different KPI framing, etc.]
+
+-->

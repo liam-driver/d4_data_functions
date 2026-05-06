@@ -4,8 +4,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import secrets
+import smtplib
 import subprocess
 import time
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -21,6 +24,7 @@ from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOKENS_PATH = os.path.join(PROJECT_ROOT, "storage", "tokens.json")
 
 with open(os.path.join(PROJECT_ROOT, "storage", "secrets.json"), "r") as f:
     _secrets = json.load(f)
@@ -32,10 +36,9 @@ if not ISSUER_URL:
 
 class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
     """
-    Minimal in-memory OAuth provider for the weekly reports MCP server.
-    Auto-authorizes all requests — access control is handled by Claude enterprise
-    org membership, so anyone in the org who connects gets a token automatically.
-    Tokens are in-memory only; Claude enterprise will re-authorize on server restart.
+    OAuth provider for the weekly reports MCP server. Auto-authorizes all requests —
+    access control is enforced upstream by Cloudflare Access (door4.com Google accounts only).
+    Tokens are persisted to storage/tokens.json and survive server restarts.
     """
 
     def __init__(self):
@@ -43,12 +46,40 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
         self._auth_codes: dict[str, AuthorizationCode] = {}
         self._access_tokens: dict[str, AccessToken] = {}
         self._refresh_tokens: dict[str, RefreshToken] = {}
+        self._load()
+
+    def _load(self):
+        if not os.path.exists(TOKENS_PATH):
+            return
+        try:
+            with open(TOKENS_PATH, "r") as f:
+                data = json.load(f)
+            now = time.time()
+            for k, v in data.get("access_tokens", {}).items():
+                if v.get("expires_at") and v["expires_at"] > now:
+                    self._access_tokens[k] = AccessToken.model_validate(v)
+            for k, v in data.get("refresh_tokens", {}).items():
+                self._refresh_tokens[k] = RefreshToken.model_validate(v)
+            for k, v in data.get("clients", {}).items():
+                self._clients[k] = OAuthClientInformationFull.model_validate(v)
+        except Exception:
+            pass
+
+    def _save(self):
+        data = {
+            "access_tokens": {k: v.model_dump(mode="json") for k, v in self._access_tokens.items()},
+            "refresh_tokens": {k: v.model_dump(mode="json") for k, v in self._refresh_tokens.items()},
+            "clients": {k: v.model_dump(mode="json") for k, v in self._clients.items()},
+        }
+        with open(TOKENS_PATH, "w") as f:
+            json.dump(data, f, indent=2)
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         return self._clients.get(client_id)
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         self._clients[client_info.client_id] = client_info
+        self._save()
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         code = secrets.token_urlsafe(32)
@@ -88,6 +119,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             client_id=client.client_id,
             scopes=authorization_code.scopes,
         )
+        self._save()
         return OAuthToken(
             access_token=access_token_str,
             token_type="bearer",
@@ -133,6 +165,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             client_id=client.client_id,
             scopes=refresh_token.scopes,
         )
+        self._save()
         return OAuthToken(
             access_token=access_token_str,
             token_type="bearer",
@@ -146,6 +179,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider):
             self._access_tokens.pop(token.token, None)
         else:
             self._refresh_tokens.pop(token.token, None)
+        self._save()
 
 
 mcp = FastMCP(
@@ -174,9 +208,19 @@ def list_clients() -> str:
     return json.dumps([c["name"] for c in clients])
 
 
+def _validate_client_name(client_name: str) -> None:
+    config_path = os.path.join(PROJECT_ROOT, "storage", "config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        clients = json.load(f)
+    known = [c["name"] for c in clients]
+    if client_name not in known:
+        raise ValueError(f"Unknown client '{client_name}'. Known clients: {known}")
+
+
 @mcp.tool()
 def fetch_client_data(client_name: str) -> str:
     """Fetch all performance data for a client. Returns the full data JSON needed to generate commentary."""
+    _validate_client_name(client_name)
     script = os.path.join(PROJECT_ROOT, "weekly_reports", "fetch_data.py")
     result = subprocess.run(
         [sys.executable, script, "--client", client_name],
@@ -190,8 +234,39 @@ def fetch_client_data(client_name: str) -> str:
 
 
 @mcp.tool()
+def fetch_monthly_client_data(client_name: str) -> str:
+    """Fetch monthly performance data for a client. Returns MoM, YoY, and 90-day timeseries as three top-level sections."""
+    _validate_client_name(client_name)
+    script = os.path.join(PROJECT_ROOT, "monthly_reports", "main.py")
+    result = subprocess.run(
+        [sys.executable, script, "--client", client_name, "--data-only"],
+        capture_output=True, text=True, cwd=PROJECT_ROOT
+    )
+    if result.returncode != 0:
+        raise Exception(f"Monthly data fetch failed: {result.stderr}")
+    data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
+    with open(data_path, "r", encoding="utf-8") as f:
+        client = json.load(f)
+    structured = {
+        "mom": {
+            "paid_data": client.get("paid_data_mom"),
+            "llm_data": client.get("llm_data_mom"),
+            "overall_data": client.get("overall_data_mom"),
+        },
+        "yoy": {
+            "paid_data": client.get("paid_data_yoy"),
+            "llm_data": client.get("llm_data_yoy"),
+            "overall_data": client.get("overall_data_yoy"),
+        },
+        "timeseries": client.get("timeseries_data"),
+    }
+    return json.dumps(structured, ensure_ascii=False)
+
+
+@mcp.tool()
 def send_weekly_report(client_name: str, commentary: str) -> str:
     """Send the weekly report email for a client. commentary must be a JSON string matching the report schema."""
+    _validate_client_name(client_name)
     commentary_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_commentary.json")
     with open(commentary_path, "w", encoding="utf-8") as f:
         json.dump(json.loads(commentary), f, ensure_ascii=False, indent=2)
@@ -202,6 +277,29 @@ def send_weekly_report(client_name: str, commentary: str) -> str:
     )
     if result.returncode != 0:
         raise Exception(f"Email send failed: {result.stderr}")
+    return f"Weekly report sent successfully for {client_name}"
+
+
+@mcp.tool()
+def send_weekly_report_html(client_name: str, html_body: str) -> str:
+    """Send the weekly report email with a pre-rendered HTML body. Use this with the interactive weekly-report skill — call it once the user has approved the draft."""
+    _validate_client_name(client_name)
+    secrets_path = os.path.join(PROJECT_ROOT, "storage", "secrets.json")
+    with open(secrets_path, "r", encoding="utf-8") as f:
+        _secrets_data = json.load(f)
+
+    msg = MIMEMultipart()
+    msg['From'] = _secrets_data["email"]
+    msg['Subject'] = f"{client_name} Weekly Report"
+    msg.attach(MIMEText(html_body, 'html'))
+
+    with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(_secrets_data["email"], _secrets_data["password"])
+        smtp.sendmail(_secrets_data["email"], _secrets_data["send_email"], msg.as_string())
+
     return f"Weekly report sent successfully for {client_name}"
 
 

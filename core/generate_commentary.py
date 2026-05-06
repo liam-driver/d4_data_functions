@@ -11,9 +11,11 @@ def generate_weekly_commentary(client):
     payload = {
         "inputs": {
             "plans_90_day": client['plan_json'],
-            "paid_data": client['llm_data'],
-            "overall_data": client['overall_data'],
-            "paid_data_90_day": client['timeseries_data'],
+            "paid_data_mom": client['mom']['llm_data'],
+            "overall_data_mom": client['mom']['overall_data'],
+            "paid_data_yoy": client['yoy']['llm_data'],
+            "overall_data_yoy": client['yoy']['overall_data'],
+            "paid_data_90_day": client['timeseries'],
             "report_start_date": client['start_date_string'],
             "report_end_date": client['end_date_string'],
             "monthly_budget": client['budget'],
@@ -125,8 +127,10 @@ def generate_weekly_commentary(client):
 
             "DEFINITION OF VARIABLES:\n"
             "- plans_90_day: this is a json object that contains the plans for the current period as well as the plans from previous periods, giving you context on what we have done and what we are planning to do.\n"
-            "- paid_data: this is a json object that has all of the ppc data (e.g. Google ads) from the current period, compared to our comparison period. This has the data that we need to translate into insights, so it is the most important variable that you should factor in\n"
-            "- overall_data: this is a json object that has the overall site data, taken from GA4, from the current period, compared to our comparison period. This should be used for extra context for paid data so that we can compare it to other channels, like Organic, and lets us review how holistic plans are performing\n"
+            "- paid_data_mom: PPC data comparing the current period to the same period last month. Use as the primary dataset when reporting_period is 'MTD Monthly Comparison'.\n"
+            "- overall_data_mom: GA4 site-wide data for the same month-on-month window.\n"
+            "- paid_data_yoy: PPC data comparing the current period to the same period last year. Use as the primary dataset when reporting_period is 'MTD Yearly Comparison'.\n"
+            "- overall_data_yoy: GA4 site-wide data for the same year-on-year window.\n"
             "- paid_data_90_day: this is the paid data broken down by week number to give a view of how the data has fluctuated over the past 90 days\n"
             "- report_start_date: This is the date where the reporting period begins\n"
             "- report_end_date: This is the date where the reporting period ends\n"
@@ -153,6 +157,7 @@ def generate_weekly_commentary(client):
             "- If a point is anchored on a Tier 3 or Tier 4 metric, it must be explicitly framed in terms of a Tier 1 outcome (e.g. 'Click volume declined, contributing to a drop in conversions and a weaker ROAS for the period').\n"
             "- When multiple tiers are relevant, always lead with the highest tier and work downward — not the other way around.\n"
 
+            "The reporting_period field tells you which comparison is primary. Use the primary dataset to lead all performance points. Reference the secondary dataset only where it adds meaningful seasonal or trend context — do not lead a point with the secondary comparison.\n"
             "It is essential that the context provided through the 'holistic_plans', 'paid_plans', 'kpis', 'seasonality' and 'historical_context' are used. We are comparing ourselves to ourselves and we want to stay aligned to our goals for the year\n"
             "When looking at volume metrics, make sure that we are comparing it to the amount we've spent, if conversions or transaction revenue is down, then we need to account for the cost as the interplay between volume metrics and cost are too important to just reference volume metrics on their own\n"
             "When referring to data in a point, make sure that we are identifying where that data has come from, is it from the paid dataset, or the overall dataset? Furthermore, if we are referencing data from a specific dimension, make sure that is stated in the commentary\n"
@@ -231,14 +236,15 @@ def generate_monthly_slide_content(client):
     payload = {
         "inputs": {
             "plans_90_day": client['plan_json'],
-            "paid_data": client['llm_data'],
-            "overall_data": client['overall_data'],
+            "paid_data_mom": client['llm_data_mom'],
+            "overall_data_mom": client['overall_data_mom'],
+            "paid_data_yoy": client['llm_data_yoy'],
+            "overall_data_yoy": client['overall_data_yoy'],
             "paid_data_90_day": client['timeseries_data'],
             "report_start_date": client['start_date_string'],
             "report_end_date": client['end_date_string'],
             "run_rate": client['run_rate'],
-            "cost_to_date": client['paid_data']['Total']['Cost']['curr'],
-            "reporting_period": client['comparison_dates'],
+            "cost_for_month": client['paid_data_mom']['Total']['Cost']['curr'],
             "client_context": client['client_context'],
             "holistic_plans": client['holistic_plans'],
             "paid_plans": client['paid_plans'],
@@ -461,19 +467,21 @@ def generate_monthly_slide_content(client):
 
             "DEFINITION OF VARIABLES:\n"
             "- plans_90_day: current and historical 90-day plans, giving context on what has been done and what is planned.\n"
-            "- paid_data: PPC performance data for the current period vs. comparison period. Most important variable.\n"
-            "- overall_data: GA4 site-wide data for context across all channels.\n"
+            "- paid_data_mom: PPC performance data comparing the reported month to the previous calendar month (month-on-month). Use this to identify short-term trends and recent momentum.\n"
+            "- overall_data_mom: GA4 site-wide data for the same month-on-month comparison window.\n"
+            "- paid_data_yoy: PPC performance data comparing the reported month to the same month last year (year-on-year). Use this to identify seasonal patterns and longer-term progress.\n"
+            "- overall_data_yoy: GA4 site-wide data for the same year-on-year comparison window.\n"
             "- paid_data_90_day: paid data broken down by week to show performance over the past 90 days.\n"
-            "- report_start_date / report_end_date: the bounds of the reporting period.\n"
-            "- run_rate: projected end-of-month spend based on current trajectory.\n"
-            "- cost_to_date: total media spend so far this month.\n"
-            "- reporting_period: one of MTD Yearly Comparison, MTD Monthly Comparison, or WTD Weekly Comparison.\n"
+            "- report_start_date / report_end_date: the bounds of the reporting period (the full calendar month being reported).\n"
+            "- run_rate: projected monthly spend. For a full completed month this will be '-' — ignore it in that case.\n"
+            "- cost_for_month: total media spend for the reported month.\n"
             "- client_context: background on the client and their offering.\n"
             "- holistic_plans: site-wide goals for the year.\n"
             "- paid_plans: PPC-specific goals for the year.\n"
             "- kpis: the key metrics used to evaluate performance against goals.\n"
             "- seasonality: context on external factors affecting performance.\n"
             "- historical_context: overview of past performance to inform current plans.\n"
+            "When choosing which comparison to reference (MoM vs YoY), pick whichever window tells the more insightful story for each individual trend or action. State clearly in the commentary which comparison you are using (e.g. 'vs. the previous month' or 'vs. the same month last year').\n"
 
             "STYLE REQUIREMENTS:\n"
             "- Summaries should be concise, human-readable single sentences or short paragraphs — no bullet lists inside a summary field.\n"

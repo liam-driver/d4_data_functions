@@ -38,17 +38,56 @@ def fetch_client_data(client_name):
         raise
 
     try:
-        if client['account_type'] == 'Lead Gen':
-            client['paid_data'] = get_funnel_data(client, 'paid_lead_gen')
-            client['llm_data'] = get_funnel_data(client, 'llm_lead_gen')
-            client['timeseries_data'] = get_funnel_data(client, 'time_series_lead_gen')
-            client['overall_data'] = get_funnel_data(client, 'overall_lead_gen')
-        elif client['account_type'] == 'Ecommerce':
-            client['paid_data'] = get_funnel_data(client, 'paid_ecommerce')
-            client['llm_data'] = get_funnel_data(client, 'llm_ecommerce')
-            client['timeseries_data'] = get_funnel_data(client, 'time_series_ecommerce')
-            client['overall_data'] = get_funnel_data(client, 'overall_ecommerce')
+        account_type = client['account_type']
+        paid_type    = 'paid_lead_gen'        if account_type == 'Lead Gen' else 'paid_ecommerce'
+        llm_type     = 'llm_lead_gen'         if account_type == 'Lead Gen' else 'llm_ecommerce'
+        overall_type = 'overall_lead_gen'     if account_type == 'Lead Gen' else 'overall_ecommerce'
+        ts_type      = 'time_series_lead_gen' if account_type == 'Lead Gen' else 'time_series_ecommerce'
+
+        # Primary comparison dates already set by config_dates
+        primary_compare_start = client['compare_start_date']
+        primary_compare_end   = client['compare_end_date']
+
+        primary_paid    = get_funnel_data(client, paid_type)
+        primary_llm     = get_funnel_data(client, llm_type)
+        primary_overall = get_funnel_data(client, overall_type)
+
+        # Secondary comparison: opposite window to primary
+        if client['comparison_dates'] == 'MTD Monthly Comparison':
+            sec_start = (client['start_date'] - pd.DateOffset(years=1)).normalize()
+            sec_end   = (client['end_date']   - pd.DateOffset(years=1)).normalize()
+        else:  # MTD Yearly Comparison
+            sec_start = (client['start_date'] - pd.DateOffset(months=1)).normalize()
+            sec_end   = (client['end_date']   - pd.DateOffset(months=1)).normalize()
+
+        client['compare_start_date'] = sec_start
+        client['compare_end_date']   = sec_end
+        sec_paid    = get_funnel_data(client, paid_type)
+        sec_llm     = get_funnel_data(client, llm_type)
+        sec_overall = get_funnel_data(client, overall_type)
+
+        # Restore primary compare dates
+        client['compare_start_date'] = primary_compare_start
+        client['compare_end_date']   = primary_compare_end
+
+        # Timeseries (90-day, no comparison window needed)
+        timeseries = get_funnel_data(client, ts_type)
+
+        # Assign sections
+        if client['comparison_dates'] == 'MTD Monthly Comparison':
+            client['mom'] = {'paid_data': primary_paid, 'llm_data': primary_llm, 'overall_data': primary_overall}
+            client['yoy'] = {'paid_data': sec_paid,     'llm_data': sec_llm,     'overall_data': sec_overall}
+        else:
+            client['yoy'] = {'paid_data': primary_paid, 'llm_data': primary_llm, 'overall_data': primary_overall}
+            client['mom'] = {'paid_data': sec_paid,     'llm_data': sec_llm,     'overall_data': sec_overall}
+
+        client['timeseries'] = timeseries
+
+        # Keep paid_data alias pointing to primary for the email template
+        client['paid_data'] = primary_paid
+
         client['run_rate'] = get_run_rate(client)
+
     except Exception as e:
         log_error(f"{client['name']} fetch_data: misconfigured Paid Data: {e}")
         raise

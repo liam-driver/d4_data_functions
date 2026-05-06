@@ -58,13 +58,6 @@ def config_dates(client):
         client['compare_start_date'] = compare_start
         client['compare_end_date'] = compare_end
     
-    if client['comparison_dates'] == 'WTD Weekly Comparison':
-        client['start_date'] = (now - pd.DateOffset(days=9)).normalize()
-        client['end_date'] = yday
-        client['compare_start_date'] = (client['start_date'] - pd.DateOffset(days=7)).normalize()
-        client['compare_end_date'] = (client['end_date'] - pd.DateOffset(days=7)).normalize()
-
-
     client['start_date_string'] = client['start_date'].normalize().strftime("%d/%m/%Y")
     client['end_date_string'] = client['end_date'].normalize().strftime("%d/%m/%Y")
     client['compare_start_date_string'] = client['compare_start_date'].normalize().strftime("%d/%m/%Y")

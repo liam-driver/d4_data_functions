@@ -1,0 +1,117 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import json
+import argparse
+import pandas as pd
+from pandas.tseries.offsets import MonthEnd
+from core.error_logger import log_error
+from core.get_funnel_data import get_funnel_data
+from core.get_run_rate import get_run_rate
+
+
+class TimestampEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        return super().default(obj)
+
+
+def config_monthly_dates(client):
+    """Derive date windows for the previous full calendar month plus MoM and YoY comparisons."""
+    now = pd.Timestamp.now()
+    first_of_current_month = now.replace(day=1).normalize()
+
+    start_date = (first_of_current_month - pd.DateOffset(months=1)).normalize()
+    end_date = (start_date + MonthEnd(0)).normalize()
+
+    compare_start_mom = (start_date - pd.DateOffset(months=1)).normalize()
+    compare_end_mom = (compare_start_mom + MonthEnd(0)).normalize()
+
+    compare_start_yoy = (start_date - pd.DateOffset(years=1)).normalize()
+    compare_end_yoy = (compare_start_yoy + MonthEnd(0)).normalize()
+
+    return start_date, end_date, compare_start_mom, compare_end_mom, compare_start_yoy, compare_end_yoy
+
+
+def run_monthly_report(client_name, data_only=False):
+    os.makedirs("charts", exist_ok=True)
+
+    with open("storage/config.json", "r") as f:
+        clients = json.load(f)
+
+    client = next((c for c in clients if c['name'] == client_name), None)
+    if client is None:
+        raise ValueError(f"Client '{client_name}' not found in config")
+
+    start_date, end_date, compare_start_mom, compare_end_mom, compare_start_yoy, compare_end_yoy = config_monthly_dates(client)
+
+    client['start_date'] = start_date
+    client['end_date'] = end_date
+    client['start_date_string'] = start_date.strftime("%d/%m/%Y")
+    client['end_date_string'] = end_date.strftime("%d/%m/%Y")
+
+    try:
+        if client["plan"] != "":
+            with open("storage/plans.json", "r") as f:
+                plans = json.load(f)
+            client["plan_json"] = plans[client["name"]]
+    except Exception as e:
+        log_error(f"{client['name']} monthly_reports/main: misconfigured 90 Day Plan: {e}")
+        raise
+
+    account_type = client['account_type']
+    paid_type = 'paid_lead_gen' if account_type == 'Lead Gen' else 'paid_ecommerce'
+    llm_type = 'llm_lead_gen' if account_type == 'Lead Gen' else 'llm_ecommerce'
+    overall_type = 'overall_lead_gen' if account_type == 'Lead Gen' else 'overall_ecommerce'
+    ts_type = 'time_series_lead_gen' if account_type == 'Lead Gen' else 'time_series_ecommerce'
+
+    try:
+        # MoM comparison pass
+        client['compare_start_date'] = compare_start_mom
+        client['compare_end_date'] = compare_end_mom
+        client['paid_data_mom'] = get_funnel_data(client, paid_type)
+        client['llm_data_mom'] = get_funnel_data(client, llm_type)
+        client['overall_data_mom'] = get_funnel_data(client, overall_type)
+
+        # YoY comparison pass
+        client['compare_start_date'] = compare_start_yoy
+        client['compare_end_date'] = compare_end_yoy
+        client['paid_data_yoy'] = get_funnel_data(client, paid_type)
+        client['llm_data_yoy'] = get_funnel_data(client, llm_type)
+        client['overall_data_yoy'] = get_funnel_data(client, overall_type)
+
+        # Timeseries (90-day window, no comparison)
+        client['timeseries_data'] = get_funnel_data(client, ts_type)
+
+        # Alias MoM as the primary paid_data so existing helpers (add_kpi_boxes, get_run_rate) work
+        client['paid_data'] = client['paid_data_mom']
+        client['run_rate'] = get_run_rate(client)
+
+    except Exception as e:
+        log_error(f"{client['name']} monthly_reports/main: data fetch failed: {e}")
+        raise
+
+    data_path = f"storage/{client_name}_monthly_data.json"
+    with open(data_path, "w", encoding="utf-8") as f:
+        json.dump(client, f, ensure_ascii=False, indent=2, cls=TimestampEncoder)
+    print(f"Monthly data written to {data_path}")
+
+    if data_only:
+        return data_path
+
+    from monthly_reports.generate_ppt import generate_ppt
+    month_str = start_date.strftime("%Y_%m")
+    output_path = f"slides/{client_name}_monthly_{month_str}.pptx"
+    generate_ppt(client_name, output_path)
+    print(f"Monthly report saved to {output_path}")
+    return output_path
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--client", required=True, help="Client name as it appears in config.json")
+    parser.add_argument("--data-only", action="store_true", help="Fetch and save data only, skip PPT generation")
+    args = parser.parse_args()
+    run_monthly_report(args.client, data_only=args.data_only)

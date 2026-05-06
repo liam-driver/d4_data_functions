@@ -12,7 +12,7 @@ import smtplib
 
 def send_email(client):
     # Initialise the html template
-    env = Environment(loader=FileSystemLoader('templates'))
+    env = Environment(loader=FileSystemLoader('templates'), autoescape=True)
     template = env.get_template('email_template_2025.html')
     html_email = template.render(client=client)
     # Define email & password for sender email

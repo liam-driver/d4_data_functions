@@ -206,14 +206,14 @@ def main():
         secrets = json.load(f)
 
     slack_token = secrets["slack_bot_token"]
-    slack_channel = "C05510P0Z7G"            #Official channel: C093QSSCU1L; Test: C05510P0Z7G
+    slack_channel = "C093QSSCU1L"            #Official channel: C093QSSCU1L; Test: C05510P0Z7G
 
     with open("storage/config.json") as f:
         clients = json.load(f)
 
     date_str = datetime.today().strftime("%a %d %b")
 
-    client_results = []
+    client_results = [] 
     client_channels = {}
     for client in clients:
         client = config_dates(client)

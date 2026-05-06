@@ -35,12 +35,12 @@ SLD_LAYOUT_BLANK = 13
 
 
 
-def generate_ppt(client_name):
-    data_path = f"storage/{client_name}_data.json"
+def generate_ppt(client_name, output_path=None):
+    data_path = f"storage/{client_name}_monthly_data.json"
     if not os.path.exists(data_path):
         raise FileNotFoundError(
-            f"No data file found for '{client_name}'. "
-            f"Run: py weekly_reports/fetch_data.py --client \"{client_name}\""
+            f"No monthly data file found for '{client_name}'. "
+            f"Run: python -m monthly_reports.main --client \"{client_name}\""
         )
     with open(data_path, "r", encoding="utf-8") as f:
         client = json.load(f)
@@ -51,8 +51,10 @@ def generate_ppt(client_name):
 
     current_month = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B")
 
-    shutil.copy('slides/template.pptx', 'slides/test.pptx')
-    prs = Presentation('slides/test.pptx')
+    if output_path is None:
+        output_path = f"slides/{client_name}_monthly.pptx"
+    shutil.copy('slides/template.pptx', output_path)
+    prs = Presentation(output_path)
 
     # Remove the single placeholder slide
     slide_rid = prs.slides._sldIdLst[0].get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
@@ -129,8 +131,8 @@ def generate_ppt(client_name):
             chart_path = render_graph(client, action['graph'])
             add_chart_to_slide(slide, chart_path)
 
-    prs.save('slides/test.pptx')
-    print(f"Saved with {len(prs.slides)} slide(s)")
+    prs.save(output_path)
+    print(f"Saved {output_path} with {len(prs.slides)} slide(s)")
 
 
 def add_kpi_boxes(slide, client):
@@ -238,5 +240,6 @@ def add_chart_to_slide(slide, chart_path, left=Inches(5), top=Inches(1.5), width
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", required=True, help="Client name as it appears in config.json")
+    parser.add_argument("--output", default=None, help="Output path for the generated PPTX")
     args = parser.parse_args()
-    generate_ppt(args.client)
+    generate_ppt(args.client, args.output)
