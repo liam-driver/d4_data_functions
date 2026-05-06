@@ -199,6 +199,11 @@ After presenting the preview, ask: **"Happy with this? Let me know any changes, 
 
 When the user approves and asks to send, generate the following HTML exactly, substituting all placeholders with the real values from the client data and approved commentary. Do not add any extra styling, tags, or structure beyond what is shown here.
 
+**Critical formatting rules — this email gets pasted into Slack:**
+- Every `<li>` must be written as a single unbroken line. Never put newlines or indentation inside a `<li>` tag.
+- Every major section must be separated by a `<br>` tag.
+- The KPI `<li>` items in particular must be one line each — dimension, revenue/conversions, and ROAS/CPA all on the same line with no line breaks between them.
+
 ```html
 <!DOCTYPE html>
 <html>
@@ -210,7 +215,7 @@ When the user approves and asks to send, generate the following HTML exactly, su
   <p><b>90 Day Plan: [client.plan]</b></p>
   <br>
   <p><b>WIP: </b></p>
-  [Repeat for each current task in plan_overview:]
+  [Repeat for each current task in plan_overview — each task block is:]
     [loop index].) [task.task]
     <ul>
       <li>Overview: [task.summary]</li>
@@ -219,30 +224,33 @@ When the user approves and asks to send, generate the following HTML exactly, su
     </ul>
     <br>
   [End repeat]
+  <br>
   <p><b>Performance Overview: </b></p>
   <ul>
-    <li>[performance_overview.summary]</li>
+    <li>[performance_overview.summary — full paragraph, no line breaks]</li>
   </ul>
   <br>
   <p><b>90 Day Overview: </b></p>
   <ul>
-    <li>[ninety_day_overview.summary]</li>
+    <li>[ninety_day_overview.summary — full paragraph, no line breaks]</li>
   </ul>
   <br>
   <p><b>Insights: </b></p>
-  [Repeat for each point in performance_points:]
+  [Repeat for each point in performance_points — each point block is:]
     [loop index].) [point.title]
     <ul>
-      <li>[point.summary]</li>
+      <li>[point.summary — full paragraph, no line breaks]</li>
     </ul>
     <br>
   [End repeat]
+  <br>
   <p><b>KPIs:</b></p>
   <ul>
-    [Repeat for each dimension in paid_data — for Ecommerce clients:]
-      <li>[dimension]: [Transaction Revenue curr] Transaction Revenue ([Transaction Revenue pct]) @ [ROAS curr] ROAS ([ROAS pct])</li>
-    [For Lead Gen clients:]
-      <li>[dimension]: [Conversions curr] Conversions ([Conversions pct]) @ [CPA curr] CPA ([CPA pct])</li>
+    [Repeat for each dimension in paid_data. Each line is a single <li> with no internal line breaks.]
+    [For Ecommerce clients, each item is exactly:]
+    <li>[Dimension]: [Transaction Revenue curr] Transaction Revenue ([Transaction Revenue pct]) @ [ROAS curr] ROAS ([ROAS pct])</li>
+    [For Lead Gen clients, each item is exactly:]
+    <li>[Dimension]: [Conversions curr] Conversions ([Conversions pct]) @ [CPA curr] CPA ([CPA pct])</li>
     [End repeat]
   </ul>
   <br>
