@@ -1,9 +1,7 @@
 import json
 import pandas as pd
-from core.get_funnel_data import initialise_df
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from weekly_reports.generate_df import graph_lead_gen, graph_ecommerce
 import matplotlib.font_manager as fm
 import os
 
@@ -18,6 +16,43 @@ BRAND = {
     "colours": ["#FEC042", "#F27D39", "#4FA6A4", "#2B2D42"],  # cycle order for multi-metric charts
     "font": "Plus Jakarta Sans",
 }
+
+def build_monthly_df(client):
+    """Flatten client['timeseries_data'] into a tidy dataframe for chart rendering."""
+    ts = client.get('timeseries_data', {})
+    rows = []
+    for channel, weeks in ts.items():
+        for week_str, metrics in weeks.items():
+            row = {'Ad Channel': channel, 'Week number (ISO)': int(week_str)}
+            for metric, vals in metrics.items():
+                raw = vals.get('curr', '0') if isinstance(vals, dict) else vals
+                clean = str(raw).replace('£', '').replace('%', '').replace(',', '').replace('x', '').strip()
+                try:
+                    row[metric] = float(clean)
+                except (ValueError, TypeError):
+                    row[metric] = 0.0
+            rows.append(row)
+    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if not df.empty:
+        df['Week number (ISO)'] = df['Week number (ISO)'].astype(int)
+        df = df.sort_values('Week number (ISO)').reset_index(drop=True)
+    return df
+
+
+def _apply_monthly_filters(df, filters):
+    """Filter a monthly df; uses partial (contains) matching so 'Paid Social'
+    catches both 'Paid Social Static' and 'Paid Social Video'."""
+    if isinstance(filters, str):
+        filters = json.loads(filters)
+    for dim, val in filters.items():
+        if dim not in df.columns:
+            continue
+        if isinstance(val, list):
+            df = df[df[dim].isin(val)]
+        else:
+            df = df[df[dim].str.contains(str(val), case=False, na=False)]
+    return df
+
 
 def render_graph(client, spec):
     # Get the graph spec (temp)
@@ -37,14 +72,15 @@ def render_line_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
 
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics = [m for m in metrics if m in df.columns]
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics].sum()
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -53,11 +89,15 @@ def render_line_chart(graph, client):
     ax2 = ax.twinx() if len(metrics) > 1 else None
 
     # ── 4. PLOT EACH METRIC AS A LINE ────────────────────────────────
+    # Use index positions for non-Date x columns (e.g. ISO week numbers are
+    # integers like 14, 15, 16 — plotting them directly misaligns the ticks)
+    x_pos = df[x_col] if x_col == 'Date' else range(len(df))
+
     for i, metric in enumerate(metrics):
         colour = BRAND["colours"][i % len(BRAND["colours"])]
         target_ax = ax2 if (i > 0 and ax2 is not None) else ax
         target_ax.plot(
-            df[x_col],
+            x_pos,
             df[metric],
             linewidth=2.5,
             marker="o",
@@ -66,7 +106,7 @@ def render_line_chart(graph, client):
             color=colour
         )
         target_ax.fill_between(
-            df[x_col],
+            x_pos,
             df[metric],
             alpha=0.1,
             color=colour
@@ -77,16 +117,17 @@ def render_line_chart(graph, client):
     ax.set_xlabel(x_col.capitalize(), fontsize=11)
 
     if ax2 is not None:
-        ax.set_ylabel(metrics[0], fontsize=11)
-        ax2.set_ylabel(metrics[1], fontsize=11)
+        ax.set_ylabel(metrics[0], fontsize=11, color=BRAND["quaternary"])
+        ax2.set_ylabel(metrics[1], fontsize=11, color=BRAND["quaternary"])
+        ax2.tick_params(axis="y", colors=BRAND["quaternary"])
     else:
-        ax.set_ylabel(metrics[0], fontsize=11)
+        ax.set_ylabel(metrics[0], fontsize=11, color=BRAND["quaternary"])
 
     if x_col == 'Date':
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
         fig.autofmt_xdate(rotation=45)
     else:
-        ax.set_xticks(range(len(df[x_col])))
+        ax.set_xticks(list(x_pos))
         ax.set_xticklabels(df[x_col], rotation=45, ha='right')
 
     ax.grid(True, alpha=0.3)
@@ -116,11 +157,15 @@ def render_bar_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
+
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics = [m for m in metrics if m in df.columns]
+    for metric in metrics:
+        df[metric] = pd.to_numeric(df[metric], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics].sum()
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -164,9 +209,8 @@ def render_bar_chart(graph, client):
     return path
 
 
-def render_stacked_bar_chart(spec, client):
+def render_stacked_bar_chart(graph, client):
     # ── 1. EXTRACT THE SPEC ──────────────────────────────────────────
-    graph   = spec["graph"]
     title   = graph["title"]
     filters = graph["filters"]
     x_col   = graph["dimensions"]["x"]
@@ -175,11 +219,16 @@ def render_stacked_bar_chart(spec, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
+
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics_present = [m for m in metrics if m in df.columns]
+    for m in metrics_present:
+        df[m] = pd.to_numeric(df[m], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics_present].sum()
+    metrics = metrics_present
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 5))
@@ -235,11 +284,16 @@ def render_pie_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
+
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics_present = [m for m in metrics if m in df.columns]
+    for m in metrics_present:
+        df[m] = pd.to_numeric(df[m], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics_present].sum()
+    metrics = metrics_present
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 7))  # square canvas works best for pie
@@ -285,11 +339,16 @@ def render_line_bar_combo_chart(graph, client):
     end      = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
+
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics_present = [m for m in metrics if m in df.columns]
+    for m in metrics_present:
+        df[m] = pd.to_numeric(df[m], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics_present].sum()
+    metrics = metrics_present
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax1 = plt.subplots(figsize=(10, 5))
@@ -328,8 +387,8 @@ def render_line_bar_combo_chart(graph, client):
     # ── 5. FORMATTING ────────────────────────────────────────────────
     ax1.set_title(title, fontsize=14, fontweight="bold", pad=12, color=BRAND["quaternary"])
     ax1.set_xlabel(x_col.capitalize(), fontsize=11)
-    ax1.set_ylabel(bar_metric, fontsize=11, color=bar_colour)
-    ax2.set_ylabel(line_metric, fontsize=11, color=line_colour)
+    ax1.set_ylabel(bar_metric, fontsize=11, color=BRAND["quaternary"])
+    ax2.set_ylabel(line_metric, fontsize=11, color=BRAND["quaternary"])
 
     ax1.set_xticks(list(x))
     ax1.set_xticklabels(
@@ -345,9 +404,7 @@ def render_line_bar_combo_chart(graph, client):
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, facecolor=BRAND["background"], edgecolor=BRAND["quaternary"])
 
-    # Style secondary axis ticks to match its line colour
-    ax2.tick_params(axis="y", colors=line_colour)
-    ax1.tick_params(axis="y", colors=bar_colour)
+    ax2.tick_params(axis="y", colors=BRAND["quaternary"])
 
     plt.tight_layout()
 
@@ -368,11 +425,15 @@ def render_horizontal_bar_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
+
+    if x_col not in df.columns:
+        x_col = 'Week number (ISO)'
+    metrics = [m for m in metrics if m in df.columns]
+    for m in metrics:
+        df[m] = pd.to_numeric(df[m], errors='coerce')
+    df = df.groupby(x_col, as_index=False)[metrics].sum()
 
     # Sort descending so largest bar is at the top
     df = df.sort_values(by=metrics[0], ascending=True)
@@ -423,11 +484,8 @@ def render_scatter_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = initialise_df(client)
-    if client['account_type'] == 'Ecommerce':
-        df = graph_ecommerce(df, filters, x_col, start, end)
-    else:
-        df = graph_lead_gen(df, filters, x_col, start, end)
+    df = build_monthly_df(client)
+    df = _apply_monthly_filters(df, filters)
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(8, 6))  # squarer canvas works better for scatter
