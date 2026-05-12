@@ -340,14 +340,37 @@ def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     """Generate the monthly PPTX for a client from pre-generated slide content.
     slide_content must be a JSON string with keys: overview (summary, bullets),
     trends (list of title/summary/bullets/graph objects), and actions (list of
-    task/summary/status/graph objects). Returns the absolute path to the saved PPTX."""
+    task/summary/status/graph objects). Returns a JSON object with 'path' and
+    'download_url' — share the download_url with the user so they can download
+    the file directly."""
     _validate_client_name(client_name)
     from monthly_reports.generate_ppt import generate_ppt
     content = json.loads(slide_content)
     output_path = generate_ppt(client_name, slide_content=content)
-    return output_path
+    filename = os.path.basename(output_path)
+    download_url = f"{ISSUER_URL}/files/{filename}"
+    return json.dumps({"path": output_path, "download_url": download_url}, ensure_ascii=False)
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(mcp.streamable_http_app(), host="0.0.0.0", port=8000)
+    from starlette.applications import Starlette
+    from starlette.routing import Route, Mount
+    from starlette.responses import FileResponse, JSONResponse
+    from starlette.requests import Request
+
+    async def download_file(request: Request):
+        filename = request.path_params["filename"]
+        slides_dir = os.path.join(PROJECT_ROOT, "slides")
+        file_path = os.path.join(slides_dir, filename)
+        if not os.path.abspath(file_path).startswith(os.path.abspath(slides_dir)):
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        if not os.path.isfile(file_path) or not filename.endswith(".pptx"):
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+    app = Starlette(routes=[
+        Route("/files/{filename}", download_file),
+        Mount("/", app=mcp.streamable_http_app()),
+    ])
+    uvicorn.run(app, host="0.0.0.0", port=8000)
