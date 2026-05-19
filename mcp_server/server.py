@@ -304,35 +304,33 @@ def send_weekly_report_html(client_name: str, html_body: str) -> str:
 
 
 @mcp.tool()
-def get_available_dimensions(client_name: str) -> str:
-    """Return the dimension options available for a client's raw data export.
-    Reads the client's Google Sheet headers and cross-references against the
-    dimension allowlist in storage/dimension_config.json.
-    Returns a JSON array of {column_name, label, requires_channel_filter} objects."""
-    _validate_client_name(client_name)
-    config_path = os.path.join(PROJECT_ROOT, "storage", "config.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        clients = json.load(f)
-    client = next(c for c in clients if c["name"] == client_name)
-    from monthly_reports.dimension_cuts import get_available_dimensions as _get_dims
-    dimensions = _get_dims(client)
-    return json.dumps(dimensions, ensure_ascii=False)
+def fetch_trend_data(client_name: str, channel: str, dimension: str, channel_filter: str = "", platform: str = "", platform_filter: str = "") -> str:
+    """Fetch MoM, YoY, and 90-day timeseries data for a Trend Topic (scoped by channel and/or platform, broken down by dimension).
+    Use this once per trend slide during the slide-by-slide workflow.
 
+    client_name: the client name as it appears in config.json.
+    channel: the Ad Channel to scope the data to (e.g. 'Paid Search', 'Paid Social'). Leave empty to include all channels.
+    dimension: the column name to break down by (e.g. 'Campaign', 'Asset', 'Campaign Group', 'Ad Platform').
+    channel_filter: optional JSON string {"type": "include"|"exclude", "channels": [...]} for
+                    multi-channel or exclusion scoping. If omitted, data is scoped to channel only.
+    platform: the Ad Platform to scope the data to (e.g. 'Google', 'Meta'). Leave empty to include all platforms.
+    platform_filter: optional JSON string {"type": "include"|"exclude", "platforms": [...]} for
+                     multi-platform or exclusion scoping. If omitted, data is scoped to platform only.
 
-@mcp.tool()
-def fetch_dimension_cut(client_name: str, dimension: str, channel_filter: str = "") -> str:
-    """Fetch MoM comparison data for a dimension cut and append it to the cached monthly JSON.
-    dimension: the column_name from dimension_config.json (e.g. 'Campaign').
-    channel_filter: optional JSON string with shape {"type": "include"|"exclude", "channels": [...]}.
-                    Pass an empty string for no filter.
-    Returns a JSON object with the fetched data_mom and generated commentary."""
+    Persists the result to dimension_data["{dimension}::{platform}::{channel}"] in the cached monthly JSON
+    (using "all" for any scope not applied) so the graph renderer can access it at PPTX build time.
+
+    Returns a JSON envelope: {channel, platform, dimension, data_key, mom, yoy, timeseries}."""
     _validate_client_name(client_name)
-    parsed_filter = None
+    parsed_channel_filter = None
     if channel_filter and channel_filter.strip():
-        parsed_filter = json.loads(channel_filter)
-    from monthly_reports.dimension_cuts import fetch_and_append_dimension_cut
-    cut_entry = fetch_and_append_dimension_cut(client_name, dimension, parsed_filter)
-    return json.dumps(cut_entry, ensure_ascii=False)
+        parsed_channel_filter = json.loads(channel_filter)
+    parsed_platform_filter = None
+    if platform_filter and platform_filter.strip():
+        parsed_platform_filter = json.loads(platform_filter)
+    from monthly_reports.dimension_cuts import fetch_trend_data as _fetch
+    result = _fetch(client_name, channel, dimension, parsed_channel_filter, platform or None, parsed_platform_filter)
+    return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool()

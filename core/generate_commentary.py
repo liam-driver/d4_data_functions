@@ -483,8 +483,8 @@ def generate_monthly_slide_content(client):
                             "summary": {"type": "string"},
                             "bullets": {
                                 "type": "array",
-                                "minItems": 2,
-                                "maxItems": 5,
+                                "minItems": 1,
+                                "maxItems": 4,
                                 "items": {
                                     "type": "object",
                                     "additionalProperties": False,
@@ -625,9 +625,9 @@ def generate_monthly_slide_content(client):
             "When choosing which comparison to reference (MoM vs YoY), pick whichever window tells the more insightful story for each individual trend or action. State clearly in the commentary which comparison you are using (e.g. 'vs. the previous month' or 'vs. the same month last year').\n"
 
             "STYLE REQUIREMENTS:\n"
-            "- Summaries should be concise, human-readable single sentences or short paragraphs — no bullet lists inside a summary field.\n"
-            "- Bullets should be short, punchy, evidence-backed statements.\n"
-            "- Use specific numbers from paid_data and overall_data where relevant.\n"
+            "- Summaries have a hard limit of 15 words. Count them. This is not a guideline — do not exceed it under any circumstances. Lead with direction, add one supporting data point only if it adds something a direction word cannot.\n"
+            "- Bullets carry one idea each. If a point needs two clauses, write two bullets. No em dashes. Do not chain observations with 'while', 'however', 'but', or 'suggesting that'.\n"
+            "- Data points in bullets are optional. Include one only if it genuinely makes the bullet stronger. Never add a number just to look thorough. Maximum one data point per bullet.\n"
             "- Use 'current period', 'previous month', or 'previous year' rather than specific dates.\n"
             "- Acronyms (ROAS, CPA, CTR, AOV) in all caps. Do not capitalise non-acronym metric names.\n"
             "- When referencing dates, use British standard format (dd/mm/yyyy).\n"
@@ -661,16 +661,15 @@ def generate_monthly_slide_content(client):
                     "DELIVERABLES:\n\n"
 
                     "1) overview\n"
-                    "- summary: a single sentence capturing the headline paid media story for the period, aligned to the client's primary KPI.\n"
-                    "- bullets: 3–6 short bullet points covering the most important performance movements across paid channels. "
-                    "Each bullet should reference a specific channel and metric. Prioritise channels by spend weight and KPI impact.\n\n"
+                    "- summary: the headline paid media story for the period in 15 words or fewer. Hard limit — count the words. Lead with direction, aligned to the client's primary KPI.\n"
+                    "- bullets: 3–6 bullet points covering the most important performance movements across paid channels. "
+                    "Each bullet carries one idea. Reference a specific channel. Include a data point only if it makes the bullet stronger — not by default. Max one data point per bullet.\n\n"
 
                     "2) trends\n"
                     "Identify the most meaningful trends visible in paid_data_90_day. Each trend gets its own slide.\n"
                     "- title: a short, clear label for the trend (e.g. 'Paid Search ROAS Recovery', 'CPA Pressure Across Social').\n"
-                    "- summary: one snappy sentence (≤15 words) explaining the trend and why it matters.\n"
-                    "- bullets: 2–5 supporting points with specific evidence from paid_data_90_day. "
-                    "Focus on directional changes, inflection points, or persistent patterns. Avoid metric soup — pick the minimum evidence needed.\n"
+                    "- summary: 15 words maximum. Hard limit — count the words before submitting. Lead with direction, one supporting data point only if it adds something a direction word cannot.\n"
+                    "- bullets: 1–4 supporting points. Each bullet carries one idea — if it needs two clauses, write two bullets. No em dashes. No chaining with 'while', 'however', or 'suggesting that'. Include a data point only if it genuinely strengthens the bullet. Max one data point per bullet.\n"
                     "- graph: every trend must have a graph spec. Choose the graph that best visualises the trend over time using paid_data_90_day. "
                     "Use graph_type 'line' for trends over time, 'bar' for period comparisons. "
                     "Set date_range to cover the full 90-day window. Serialise filters as a JSON string using exact values from filter_values in the graph schema (e.g. '{\"Ad Channel\": \"Paid Search\"}').\n"

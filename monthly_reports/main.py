@@ -93,8 +93,8 @@ def run_monthly_report(client_name, data_only=False):
         client['paid_data'] = client['paid_data_mom']
         client['run_rate'] = get_run_rate(client)
 
-        # Initialise empty dimension cuts — populated later via fetch_dimension_cut MCP tool
-        client['dimension_cuts'] = []
+        # Initialise empty dimension data — populated per-slide via fetch_trend_data MCP tool
+        client['dimension_data'] = {}
 
     except Exception as e:
         log_error(f"{client['name']} monthly_reports/main: data fetch failed: {e}")

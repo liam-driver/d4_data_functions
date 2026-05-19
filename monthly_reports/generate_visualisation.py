@@ -48,6 +48,61 @@ def build_monthly_df(client):
     return df
 
 
+def _parse_val(raw):
+    clean = str(raw).replace('£', '').replace('%', '').replace(',', '').replace('x', '').strip()
+    try:
+        return float(clean)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def build_dimension_df(client, data_source, comparison_type):
+    """
+    Build a DataFrame from client['dimension_data'][data_source] for graph rendering.
+    comparison_type: 'timeseries' | 'mom' | 'yoy'
+    For timeseries: columns are [dimension_col, 'Week number (ISO)', ...metrics]
+    For mom/yoy: columns are [dimension_col, ...metrics] using curr values
+    """
+    dim_entry = client.get('dimension_data', {}).get(data_source, {})
+    data = dim_entry.get(comparison_type, {})
+    dimension_col = data_source.split('::')[0]
+    rows = []
+
+    if comparison_type == 'timeseries':
+        for dim_val, weeks in data.items():
+            for week_str, metrics in weeks.items():
+                row = {dimension_col: dim_val, 'Week number (ISO)': int(week_str)}
+                for metric, vals in metrics.items():
+                    row[metric] = _parse_val(vals.get('curr', '0') if isinstance(vals, dict) else vals)
+                rows.append(row)
+        df = pd.DataFrame(rows) if rows else pd.DataFrame()
+        if not df.empty:
+            df['Week number (ISO)'] = df['Week number (ISO)'].astype(int)
+            df = df.sort_values('Week number (ISO)').reset_index(drop=True)
+    else:
+        for dim_val, metrics in data.items():
+            if not isinstance(metrics, dict):
+                continue
+            row = {dimension_col: dim_val}
+            for metric, vals in metrics.items():
+                row[metric] = _parse_val(vals.get('curr', '0') if isinstance(vals, dict) else vals)
+            rows.append(row)
+        df = pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    return df
+
+
+def _build_df_for_spec(client, spec):
+    """Return the correctly sourced and filtered DataFrame for a graph spec."""
+    data_source = spec.get('data_source')
+    if data_source:
+        ct = 'timeseries' if spec.get('dimensions', {}).get('x') == 'Week number (ISO)' else 'mom'
+        df = build_dimension_df(client, data_source, ct)
+    else:
+        df = build_monthly_df(client)
+    return _apply_monthly_filters(df, spec.get('filters', '{}'))
+
+
 def _apply_monthly_filters(df, filters):
     """Filter a monthly df; uses partial (contains) matching so 'Paid Social'
     catches both 'Paid Social Static' and 'Paid Social Video'."""
@@ -81,8 +136,7 @@ def render_line_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics:
@@ -173,8 +227,7 @@ def render_bar_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics:
@@ -239,8 +292,7 @@ def render_stacked_bar_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics_present = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics_present:
@@ -308,8 +360,7 @@ def render_pie_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics_present = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics_present:
@@ -365,8 +416,7 @@ def render_line_bar_combo_chart(graph, client):
     end      = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics_present = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics_present:
@@ -457,8 +507,7 @@ def render_horizontal_bar_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     metrics = [m for m in metrics if m in df.columns]
     if x_col not in df.columns or x_col in metrics:
@@ -520,8 +569,7 @@ def render_scatter_chart(graph, client):
     end     = graph["date_range"]["end"]
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
-    df = build_monthly_df(client)
-    df = _apply_monthly_filters(df, filters)
+    df = _build_df_for_spec(client, graph)
 
     # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(8, 6))  # squarer canvas works better for scatter
