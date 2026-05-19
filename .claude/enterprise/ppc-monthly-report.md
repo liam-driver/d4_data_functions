@@ -157,12 +157,11 @@ Apply at all times when selecting evidence and framing points:
 
 ### Style Requirements
 
-- **Overview summary**: a single headline sentence capturing the paid media story for the period, aligned to the client's primary KPI.
-- **Overview bullets**: 3–6 short, punchy, evidence-backed statements referencing specific channels and metrics. Prioritise channels by spend weight and KPI impact.
-- **Trend summaries**: one snappy sentence (≤15 words) explaining the trend and why it matters.
-- **Trend bullets**: 2–5 supporting points with specific evidence from `timeseries`. Focus on directional changes, inflection points, or persistent patterns. Avoid metric soup — pick the minimum evidence needed.
-- **Action summaries**: one snappy client-friendly sentence (≤15 words) per task. No marketing fluff.
-- Evidence must be specific numbers from the data inputs.
+- **Overview summary**: 15 words maximum. Hard limit — count the words. Lead with direction, aligned to the client's primary KPI. One supporting data point only if it adds something a direction word cannot.
+- **Overview bullets**: 3–6 bullet points covering the most important performance movements. Each bullet carries one idea — if it needs two clauses, write two bullets. Reference a specific channel. Include a data point only if it makes the bullet stronger, not by default. Maximum one data point per bullet.
+- **Trend summaries**: 15 words maximum. Hard limit — count the words before writing. Lead with direction, one supporting data point only if it adds something a direction word cannot.
+- **Trend bullets**: 1–4 supporting points. Each bullet carries one idea. If a point needs two clauses, write two bullets. No em dashes. Do not chain observations with 'while', 'however', 'but', or 'suggesting that'. Include a data point only if it genuinely makes the bullet stronger. Maximum one data point per bullet.
+- **Action summaries**: one client-friendly sentence (≤15 words) per task. No marketing fluff.
 - Use 'previous month' or 'previous year' — not specific dates — for period references.
 - Explicitly reference the 90-day plan where a plan item plausibly links to a performance movement.
 - Acronyms (ROAS, CPA, CTR, AOV) in all caps. Do not capitalise non-acronym metric names.
@@ -340,7 +339,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
   "trends": [
     {
       "title": "string — short trend label (e.g. 'Paid Search ROAS Recovery')",
-      "summary": "string — one snappy sentence (≤15 words) explaining the trend and why it matters",
+      "summary": "string — 15 words maximum, hard limit. Lead with direction. One data point only if it adds something a direction word cannot.",
       "bullets": [
         {"point": "string"}
       ],
@@ -374,7 +373,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
 
 **Field constraints:**
 - `overview.bullets`: 3–6 items
-- `trends[].bullets`: 2–5 items per trend
+- `trends[].bullets`: 1–4 items per trend
 - `trends[].graph`: required on every trend — never `null`
 
 ---
