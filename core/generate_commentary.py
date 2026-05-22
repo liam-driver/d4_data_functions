@@ -367,6 +367,92 @@ def generate_dimension_cut_commentary(data_mom, label, channel_filter, client):
     return json.loads(response.output_text)
 
 
+def generate_mtd_slide_content(client):
+    """Generate overview summary + bullets for the current-month TD section (YoY comparison)."""
+    payload = {
+        "inputs": {
+            "paid_data_mtd": client.get('llm_data_mtd', {}),
+            "overall_data_mtd": client.get('overall_data_mtd', {}),
+            "mtd_start_date": client.get('mtd_start_date_string', ''),
+            "mtd_end_date": client.get('mtd_end_date_string', ''),
+            "client_context": client.get('client_context', ''),
+            "kpis": client.get('kpis', ''),
+            "seasonality": client.get('seasonality', ''),
+            "client_type": client.get('account_type', 'Ecommerce'),
+        }
+    }
+
+    schema = {
+        "name": "mtd_slide_content",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "mtd_overview": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "bullets": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 6,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"point": {"type": "string"}},
+                                "required": ["point"]
+                            }
+                        }
+                    },
+                    "required": ["summary", "bullets"]
+                }
+            },
+            "required": ["mtd_overview"]
+        },
+        "strict": True,
+    }
+
+    response = oai.responses.create(
+        model="gpt-4o-mini",
+        instructions=(
+            "You are a senior performance marketing manager writing a month-to-date performance overview slide.\n"
+            "The data covers from the 1st of the current month to two days ago, compared to the same date range last year.\n"
+            "Write in British English. Be direct but human. Commentary should be productive, not scathing.\n"
+            "Use 'same period last year' for period references — never specific dates.\n\n"
+
+            "METRIC TIER HIERARCHY:\n"
+            "- Tier 1 (Outcome): ROAS (Ecommerce), CPA (Lead Gen), Transaction Revenue, Conversions. Lead all points here.\n"
+            "- Tier 2 (Efficiency): Conversion Rate, AOV, CPC, CTR, Impression Share.\n"
+            "- Tier 3 (Volume): Cost, Clicks, Transactions. Use only to contextualise Tier 1/2.\n\n"
+
+            "STYLE REQUIREMENTS:\n"
+            "- summary: 15 words maximum. Hard limit — count the words. Lead with direction, one data point only if it adds something a direction word cannot.\n"
+            "- bullets: 3–6 points. Each bullet carries one idea. Include a data point only if it genuinely strengthens the bullet. Max one data point per bullet.\n"
+            "- Acronyms (ROAS, CPA, CTR, AOV) in all caps. Do not capitalise non-acronym metric names.\n"
+            "- Note this is a partial month — frame commentary accordingly (e.g. 'month to date').\n"
+        ),
+        input=[{
+            "role": "user",
+            "content": (
+                "Generate mtd_overview summary and bullets for the month-to-date performance slide.\n"
+                "Use paid_data_mtd as the primary source. Comparison is YoY (same days last year).\n"
+                "Input JSON:\n"
+                + json.dumps(payload, ensure_ascii=False)
+            )
+        }],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": schema["name"],
+                "schema": schema["schema"],
+                "strict": schema["strict"],
+            }
+        },
+    )
+    return json.loads(response.output_text)
+
+
 def generate_monthly_slide_content(client):
     payload = {
         "inputs": {

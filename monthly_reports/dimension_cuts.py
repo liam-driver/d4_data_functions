@@ -6,21 +6,25 @@ from core.safe_div import safe_div
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-_PLATFORM_ALIASES = {
-    'google':    'Google Ads',
-    'microsoft': 'Microsoft Ads',
-    'bing':      'Microsoft Ads',
-    'meta':      'Facebook Ads',
-    'facebook':  'Facebook Ads',
-    'tiktok':    'TikTok Ads',
-}
+def _build_data_key(dimension, filters):
+    if not filters:
+        return dimension
+    parts = [f"{col}={val}" for col, val in sorted(filters.items())]
+    return "::".join([dimension] + parts)
 
 
-def _normalise_platform(value):
-    """Map shorthand platform names to the exact values used in the sheet."""
-    if not value:
-        return value
-    return _PLATFORM_ALIASES.get(value.lower().strip(), value)
+def _apply_scope_filters(df, filters):
+    if not filters:
+        return df
+    for col, val in filters.items():
+        if col not in df.columns:
+            continue
+        if isinstance(val, list):
+            df = df[df[col].isin(val)]
+        else:
+            df = df[df[col] == val]
+    return df
+
 
 _ADDITIVE_METRIC_CANDIDATES = [
     ('Cost',               ['Cost (GBP)', 'Cost']),
@@ -59,18 +63,7 @@ def _compute_derived_metrics(df_work):
     return df_work
 
 
-def _apply_scope_filter(df, filter_dict, column):
-    if not filter_dict or column not in df.columns:
-        return df
-    values = filter_dict.get('channels') or filter_dict.get('platforms') or []
-    if not values:
-        return df
-    if filter_dict.get('type') == 'exclude':
-        return df[~df[column].isin(values)]
-    return df[df[column].isin(values)]
-
-
-def get_dimension_cut(client, dimension_column, channel_filter=None, platform_filter=None):
+def get_dimension_cut(client, dimension_column, filters=None):
     """MoM comparison data sliced by dimension_column. Uses client compare_start/end_date."""
     from weekly_reports.generate_df import get_total_row
 
@@ -94,8 +87,7 @@ def get_dimension_cut(client, dimension_column, channel_filter=None, platform_fi
     }
 
     df = apply_filters(df, client, breakdown_dimension, date_range)
-    df = _apply_scope_filter(df, channel_filter, 'Ad Channel')
-    df = _apply_scope_filter(df, platform_filter, 'Ad Platform')
+    df = _apply_scope_filters(df, filters)
 
     columns_set = set(df.columns.tolist())
     selected = {}
@@ -126,15 +118,22 @@ def get_dimension_cut(client, dimension_column, channel_filter=None, platform_fi
     return df_to_json(df_pivot, breakdown_dimension, metrics, table_type)
 
 
-def get_dimension_timeseries(client, dimension_column, channel_filter=None, platform_filter=None):
-    """90-day week-by-week data sliced by dimension_column. Returns {dim_val: {week: {metric: {curr}}}}."""
+def get_dimension_timeseries(client, dimension_column, filters=None, time_dimension='Week number (ISO)', start_date_override=None):
+    """Timeseries data sliced by dimension_column, grouped by time_dimension.
+
+    time_dimension: 'Week number (ISO)' | 'Month' | 'Year' | 'Date'
+    start_date_override: ISO date string to extend the lookback beyond the default 90 days.
+    Returns {dim_val: {time_key: {metric: {curr}}}}."""
     df = initialise_df(client)
 
     if dimension_column not in df.columns:
         raise ValueError(f"Column '{dimension_column}' not found in sheet.")
 
     end_date = client['end_date']
-    start_date = (end_date - pd.DateOffset(days=90)).normalize()
+    if start_date_override:
+        start_date = pd.Timestamp(start_date_override).normalize()
+    else:
+        start_date = (end_date - pd.DateOffset(days=90)).normalize()
 
     mask = (
         (df['Date'] >= start_date) &
@@ -143,14 +142,22 @@ def get_dimension_timeseries(client, dimension_column, channel_filter=None, plat
         (df[dimension_column] != '')
     )
     df = df.loc[mask].copy()
-    df = _apply_scope_filter(df, channel_filter, 'Ad Channel')
-    df = _apply_scope_filter(df, platform_filter, 'Ad Platform')
+    df = _apply_scope_filters(df, filters)
 
     if df.empty:
         return {}
 
-    if 'Week number (ISO)' not in df.columns:
-        df['Week number (ISO)'] = df['Date'].dt.isocalendar().week.astype(int)
+    if time_dimension == 'Week number (ISO)':
+        if 'Week number (ISO)' not in df.columns:
+            df['Week number (ISO)'] = df['Date'].dt.isocalendar().week.astype(int)
+    elif time_dimension == 'Month':
+        df['Month'] = df['Date'].dt.to_period('M').astype(str)
+    elif time_dimension == 'Year':
+        df['Year'] = df['Date'].dt.year.astype(int)
+    # 'Date' column is already present
+
+    if time_dimension not in df.columns:
+        raise ValueError(f"Time dimension '{time_dimension}' is not available in the data.")
 
     columns_set = set(df.columns.tolist())
     selected = {}
@@ -162,10 +169,10 @@ def get_dimension_timeseries(client, dimension_column, channel_filter=None, plat
     if not selected:
         return {}
 
-    work_cols = [dimension_column, 'Week number (ISO)'] + list(selected.values())
+    work_cols = [dimension_column, time_dimension] + list(selected.values())
     df_work = df[work_cols].copy()
     df_work[list(selected.values())] = df_work[list(selected.values())].apply(pd.to_numeric, errors='coerce')
-    df_work = df_work.groupby([dimension_column, 'Week number (ISO)'], as_index=False).sum()
+    df_work = df_work.groupby([dimension_column, time_dimension], as_index=False).sum()
 
     rename_map = {v: k for k, v in selected.items()}
     df_work = df_work.rename(columns=rename_map)
@@ -174,36 +181,37 @@ def get_dimension_timeseries(client, dimension_column, channel_filter=None, plat
     int_metrics = ['Impressions', 'Clicks', 'Transactions', 'Conversions', 'Sessions']
     pct_metrics = ['CTR', 'Conversion Rate', 'ROAS', 'Impression Share', 'Abs. Top Impression Share']
     gbp_metrics = ['Cost', 'Transaction Revenue', 'CPA', 'CPC', 'AOV']
-    metrics = [col for col in df_work.columns if col not in [dimension_column, 'Week number (ISO)']]
+    metrics = [col for col in df_work.columns if col not in [dimension_column, time_dimension]]
 
     result = {}
     for _, row in df_work.iterrows():
         dim_val = str(row[dimension_column])
-        week = str(int(row['Week number (ISO)']))
+        time_key = str(int(row[time_dimension])) if time_dimension in ('Week number (ISO)', 'Year') else str(row[time_dimension])
         if dim_val not in result:
             result[dim_val] = {}
-        week_data = {}
+        time_data = {}
         for metric in metrics:
             val = row[metric]
             if metric in int_metrics:
-                week_data[metric] = {'curr': fmt_int(val)}
+                time_data[metric] = {'curr': fmt_int(val)}
             elif metric in pct_metrics:
-                week_data[metric] = {'curr': fmt_pct(val)}
+                time_data[metric] = {'curr': fmt_pct(val)}
             elif metric in gbp_metrics:
-                week_data[metric] = {'curr': fmt_gbp(val)}
-        result[dim_val][week] = week_data
+                time_data[metric] = {'curr': fmt_gbp(val)}
+        result[dim_val][time_key] = time_data
 
     return result
 
 
-def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platform=None, platform_filter=None):
+def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platform=None, platform_filter=None, time_dimension='Week number (ISO)', start_date_override=None):
     """
-    Fetches MoM, YoY, and 90-day timeseries data for a Trend Topic (channel + dimension).
-    Persists to dimension_data["{dimension}::{platform}::{channel}"] in the cached monthly JSON.
+    Fetches MoM, YoY, and timeseries data for a Trend Topic scoped by channel/platform,
+    broken down by dimension. Persists to dimension_data[data_key] in the cached monthly JSON.
+
+    time_dimension: column to group the timeseries by ('Week number (ISO)', 'Month', 'Year', 'Date').
+    start_date_override: ISO date string to extend the timeseries lookback (e.g. start of year for YTD).
     Returns the full envelope dict.
     """
-    platform = _normalise_platform(platform)
-
     data_path = os.path.join(PROJECT_ROOT, 'storage', f'{client_name}_monthly_data.json')
     with open(data_path, 'r', encoding='utf-8') as f:
         client = json.load(f)
@@ -213,29 +221,39 @@ def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platf
         if key in client and isinstance(client[key], str):
             client[key] = pd.Timestamp(client[key])
 
-    effective_channel_filter = channel_filter if channel_filter else ({'type': 'include', 'channels': [channel]} if channel else None)
-    effective_platform_filter = platform_filter if platform_filter else ({'type': 'include', 'platforms': [platform]} if platform else None)
+    # Build scope filters from channel / platform params
+    filters = {}
+    if channel_filter and channel_filter.get('type') == 'include':
+        filters['Ad Channel'] = channel_filter['channels']
+    elif channel:
+        filters['Ad Channel'] = channel
+
+    if platform_filter and platform_filter.get('type') == 'include':
+        filters['Ad Platform'] = platform_filter['platforms']
+    elif platform:
+        filters['Ad Platform'] = platform
+
+    filters = filters or None
 
     client['compare_start_date'] = client['compare_start_mom']
     client['compare_end_date'] = client['compare_end_mom']
-    data_mom = get_dimension_cut(client, dimension, effective_channel_filter, effective_platform_filter)
+    data_mom = get_dimension_cut(client, dimension, filters)
 
     client['compare_start_date'] = client['compare_start_yoy']
     client['compare_end_date'] = client['compare_end_yoy']
-    data_yoy = get_dimension_cut(client, dimension, effective_channel_filter, effective_platform_filter)
+    data_yoy = get_dimension_cut(client, dimension, filters)
 
-    data_timeseries = get_dimension_timeseries(client, dimension, effective_channel_filter, effective_platform_filter)
+    data_timeseries = get_dimension_timeseries(client, dimension, filters, time_dimension, start_date_override)
 
-    platform_part = platform if platform else 'all'
-    channel_part = channel if channel else 'all'
-    data_key = f"{dimension}::{platform_part}::{channel_part}"
+    data_key = _build_data_key(dimension, filters)
 
     if not isinstance(client.get('dimension_data'), dict):
         client['dimension_data'] = {}
     client['dimension_data'][data_key] = {
-        'mom':        data_mom,
-        'yoy':        data_yoy,
-        'timeseries': data_timeseries,
+        'time_dimension': time_dimension,
+        'mom':            data_mom,
+        'yoy':            data_yoy,
+        'timeseries':     data_timeseries,
     }
 
     from monthly_reports.main import TimestampEncoder
@@ -243,11 +261,12 @@ def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platf
         json.dump(client, f, ensure_ascii=False, indent=2, cls=TimestampEncoder)
 
     return {
-        'channel':    channel,
-        'platform':   platform,
-        'dimension':  dimension,
-        'data_key':   data_key,
-        'mom':        data_mom,
-        'yoy':        data_yoy,
-        'timeseries': data_timeseries,
+        'channel':        channel,
+        'platform':       platform,
+        'dimension':      dimension,
+        'data_key':       data_key,
+        'time_dimension': time_dimension,
+        'mom':            data_mom,
+        'yoy':            data_yoy,
+        'timeseries':     data_timeseries,
     }

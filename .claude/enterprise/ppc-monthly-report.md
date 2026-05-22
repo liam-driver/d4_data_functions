@@ -19,8 +19,9 @@ Call `fetch_monthly_client_data` with the client name. This returns:
 - `mom`: Month-over-month data — `paid_data`, `llm_data`, `overall_data`
 - `yoy`: Year-over-year data — `paid_data`, `llm_data`, `overall_data`
 - `timeseries`: 90-day weekly paid data, keyed by ad channel and ISO week number
+- `mtd`: Current month to date — `paid_data`, `llm_data`, `overall_data`, `start_date`, `end_date`. The date range is the 1st of the current month to two days before today (e.g. if today is 17/05/2026, the range is 01/05/2026 – 15/05/2026). Compared to the same date range last year.
 
-The reporting period is the previous full calendar month (e.g. if today is May 2026, the period is 01/04/2026 – 30/04/2026). Client context — background, goals, KPIs, seasonality, historical context, 90-day plan, and `slack_channel_id` — is stored in the project documents for this client.
+The reporting period for the main deck is the previous full calendar month (e.g. if today is May 2026, the period is 01/04/2026 – 30/04/2026). Client context — background, goals, KPIs, seasonality, historical context, 90-day plan, and `slack_channel_id` — is stored in the project documents for this client.
 
 **1b. Fetch Slack context**
 
@@ -35,7 +36,8 @@ If `slack_channel_id` is not available, skip and note no Slack context is availa
 **1c. Render the initial preview**
 
 Using the baseline data and Slack context, render the **Initial Preview** in chat using the **Initial Preview Format** section below. This contains:
-- **Performance Overview** — fully populated with real scorecard data and commentary
+- **{Previous Month} Performance Overview** — fully populated with real scorecard data and commentary using `mom` and `yoy` data
+- **{Current Month} TD Performance Overview** — fully populated with real scorecard data and commentary using `mtd` data compared to the same days last year. Only included if `mtd.start_date` is present in the fetch response.
 - **Top Level Trends** — draft suggestions only (not full slides), each a short hypothesis about a potential trend topic derived from the baseline timeseries and Slack signals
 - **Actions** — fully populated from the 90-day plan
 - **Gantt** — auto-generated label only
@@ -60,13 +62,17 @@ The user selects or proposes a trend topic. A topic is either:
 
 Call `fetch_trend_data` with the agreed topic. Pass:
 - `client_name`
-- `channel` — the Ad Channel to scope the data to (e.g. `Paid Search`). Leave empty to include all channels.
-- `dimension` (optional) — a dimension column name for a breakdown (e.g. `Campaign`, `Asset`, `Ad Platform`)
-- `channel_filter` (optional) — JSON string `{"type": "include"|"exclude", "channels": [...]}` for multi-channel or exclusion scoping
-- `platform` (optional) — the Ad Platform to scope the data to (e.g. `Google`, `Meta`). Leave empty to include all platforms.
-- `platform_filter` (optional) — JSON string `{"type": "include"|"exclude", "platforms": [...]}` for multi-platform or exclusion scoping
+- `dimension` — the breakdown dimension column name (e.g. `Campaign`, `Asset`, `Campaign Group`, `Ad Platform`)
+- `channel` — the Ad Channel to scope to (e.g. `Paid Search`, `Shopping`, `Paid Social Static`, `Display`). Leave empty to include all channels.
+- `channel_filter` (optional) — JSON string `{"type": "include"|"exclude", "channels": [...]}` for multi-channel or exclusion scoping. If omitted, data is scoped to `channel` only.
+- `platform` (optional) — the Ad Platform to scope to. Must match the exact value in the sheet: `Google Ads`, `Microsoft Ads`, `Facebook Ads`, `TikTok Ads`. Leave empty for all platforms.
+- `platform_filter` (optional) — JSON string `{"type": "include"|"exclude", "platforms": [...]}` for multi-platform or exclusion scoping.
+- `time_dimension` (optional, default `Week number (ISO)`) — column to group the timeseries by. One of: `Week number (ISO)`, `Month`, `Year`, `Date`. Use `Month` for YTD charts. **The graph spec's `dimensions.x` must match this value.**
+- `start_date_override` (optional) — ISO date string (`YYYY-MM-DD`) to extend the timeseries lookback beyond the default 90 days. Use for YTD charts (e.g. `2026-01-01`) or any chart needing a longer window.
 
-This returns MoM, YoY, and 90-day timeseries data scoped to that topic. Report a brief progress update while fetching.
+Use `suggested_filters` from `dimension_config.json` as a starting point for which channel/platform scoping makes sense for the chosen dimension — but the user can add, remove, or replace any filter. Filter values must exactly match values in the data (no reformatting). Omit `channel` and `platform` entirely for channel-only slides with no breakdown.
+
+The returned `data_key` is the canonical key for this slide's dimension data — use it verbatim as `data_source` in the graph spec. This returns MoM, YoY, and timeseries data scoped to that topic. Report a brief progress update while fetching.
 
 **2c. Confirm the template**
 
@@ -76,9 +82,16 @@ Based on the fetched data, propose a slide template — the layout type that bes
 
 Once the template is confirmed, render the full slide in the **Slide Preview Format** section below — title, summary, bullets, and graph spec. Follow all Commentary Rules when generating content.
 
+Then preview the graph inline:
+
+1. Write the graph spec JSON object to `storage/.preview_spec.json` using the Write tool
+2. Run: `python monthly_reports/preview_graph.py "<client_name>"`
+3. If the script exits with an error, surface the error message verbatim and do not offer confirmation — the spec must be fixed first
+4. If it succeeds, read the PNG at the printed path and display it inline below the slide text
+
 **2e. Iterate**
 
-Respond to user feedback by re-rendering the slide. Repeat until the user explicitly confirms the slide.
+Respond to user feedback by re-rendering the slide. On every iteration, always re-run the graph preview steps from 2d — do not attempt to determine whether the spec changed.
 
 **2f. Confirm and continue**
 
@@ -142,6 +155,10 @@ Use both `mom` and `yoy` when generating commentary — do not rely on one compa
 - `yoy.llm_data`: Paid data broken down by ad platform, YoY.
 - `yoy.overall_data`: Site-wide GA4 data, YoY.
 - `timeseries`: Paid data broken down by ISO week number over the past 90 days. Use for trend slides — shows directional change and inflection points over time.
+- `mtd.paid_data`: PPC data for the current month to date (1st of month to today-2), compared to the same days last year.
+- `mtd.llm_data`: MTD paid data broken down by ad platform, YoY.
+- `mtd.overall_data`: Site-wide GA4 data for the same MTD window, YoY.
+- `mtd.start_date` / `mtd.end_date`: The actual date bounds of the MTD window (dd/mm/yyyy strings).
 - **Project documents**: Client background, holistic goals, PPC goals, KPIs, seasonality, historical context, and the 90-day plan are in the project documents. These are the authoritative source for client context and supersede any equivalent fields in the JSON data.
 
 ### Metric Tier Hierarchy
@@ -201,13 +218,26 @@ Render this after the baseline fetch and Slack context are loaded. The Trends se
 
 ---
 
-**Section: Performance Overview**
+**Section: [Previous Month] Performance Overview**
 
 **Top Level View** *(Scorecard + Commentary)*
 [overview.summary]
 - [bullet 1]
 - [bullet 2]
 - ...
+
+---
+
+**Section: [Current Month] TD Performance Overview**
+**MTD Period:** [mtd.start_date] – [mtd.end_date] vs same days last year
+
+**Month to Date View** *(Scorecard + Commentary)*
+[mtd_overview.summary]
+- [bullet 1]
+- [bullet 2]
+- ...
+
+*(Omit this section if mtd.start_date is not present in the fetch response.)*
 
 ---
 
@@ -263,8 +293,11 @@ Render this once all trend slides are confirmed, before PPTX generation.
 **[Client Name] Monthly Deck — Confirmation Summary**
 **Period:** [start_date] – [end_date]
 
-**Performance Overview**
+**[Previous Month] Performance Overview**
 [overview.summary — one line]
+
+**[Current Month] TD Performance Overview** *(if present)*
+[mtd_overview.summary — one line]
 
 **Top Level Trends**
 1. **[trend.title]** | `[graph_type]` · [metrics]
@@ -318,7 +351,7 @@ Use `Week number (ISO)` for timeseries trends — this is the standard x-axis fo
 - **`pie`**: uses only the first metric; best for showing distribution across channels at a point in time.
 - **`scatter`**: exactly 2 metrics — first on the x-axis, second on the y-axis.
 - Every graph must have a `filters` value — never `null`. At minimum, filter to the relevant ad channel.
-- For dimension cut trend slides (scoped + dimension topics), set `data_source` to `"{dimension}::{platform}::{channel}"` — always 3 parts, using `"all"` for any scope not applied. Examples: `"Campaign::Google::Paid Search"`, `"Campaign::all::Paid Search"`, `"Campaign::Google::all"`. The value must exactly match the `data_key` returned by `fetch_trend_data`. This tells the renderer to read from `dimension_data` in the cached JSON rather than the baseline timeseries. Omit `data_source` for channel-only trend slides.
+- For dimension cut trend slides, set `data_source` to the `data_key` returned by `fetch_trend_data` exactly. The key is the dimension column name followed by `filterCol=filterVal` pairs sorted alphabetically, joined by `::`. Examples: `"Campaign::Ad Channel=Paid Search::Ad Platform=Google"`, `"Campaign::Ad Channel=Paid Search"`, `"Ad Platform"`. This tells the renderer to read from `dimension_data` in the cached JSON. Omit `data_source` for channel-only trend slides.
 - `filters` must be a JSON-serialised string: e.g. `"{\"Ad Channel\": \"Paid Search\"}"`. Filter keys must be a valid dimension (e.g. `Ad Channel`, `Ad Platform`). Filter values must exactly match the values that appear in the data — do not snake_case, lowercase, or reformat them.
 - `Website` is a valid dimension filter value — do not include it as a metric.
 
@@ -331,7 +364,13 @@ Generate a JSON object exactly matching this structure before calling `generate_
 ```json
 {
   "overview": {
-    "summary": "string — single headline sentence for the overview slide",
+    "summary": "string — single headline sentence for the previous-month overview slide",
+    "bullets": [
+      {"point": "string"}
+    ]
+  },
+  "mtd_overview": {
+    "summary": "string — single headline sentence for the current-month TD slide (15 words max, YoY framing)",
     "bullets": [
       {"point": "string"}
     ]
@@ -357,7 +396,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
         "filters": "string — JSON-serialised filter object e.g. \"{\\\"Ad Channel\\\": \\\"Paid Search\\\"}\"",
         "title": "string — chart title",
         "style": "string — one of: trend, comparison, distribution",
-        "data_source": "string (optional) — key into dimension_data, always 3-part: \"{dimension}::{platform}::{channel}\", e.g. \"Campaign::Google::Paid Search\" or \"Campaign::all::Paid Search\". Set only for dimension cut trend slides. Must exactly match the data_key returned by fetch_trend_data."
+        "data_source": "string (optional) — key into dimension_data. Format: dimension column first, then filterCol=filterVal pairs sorted alphabetically, joined by ::. e.g. \"Campaign::Ad Channel=Paid Search::Ad Platform=Google\" or \"Campaign::Ad Channel=Paid Search\". Set only for dimension cut trend slides. Must exactly match the data_key returned by fetch_trend_data."
       }
     }
   ],
@@ -373,6 +412,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
 
 **Field constraints:**
 - `overview.bullets`: 3–6 items
+- `mtd_overview.bullets`: 3–6 items. Include `mtd_overview` whenever `mtd.start_date` was present in the fetch response — omit the key entirely if MTD data was not available.
 - `trends[].bullets`: 1–4 items per trend
 - `trends[].graph`: required on every trend — never `null`
 

@@ -14,6 +14,8 @@ PCT_METRICS = {
 }
 _PCT_FMT = mticker.FuncFormatter(lambda x, _: f"{x:.2f}%")
 
+TIME_DIMENSIONS = {'Week number (ISO)', 'Month', 'Year', 'Date'}
+
 
 # ── BRAND CONFIG ─────────────────────────────────────────────────────
 BRAND = {
@@ -41,7 +43,7 @@ def build_monthly_df(client):
                 except (ValueError, TypeError):
                     row[metric] = 0.0
             rows.append(row)
-    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=['Ad Channel', 'Week number (ISO)'])
     if not df.empty:
         df['Week number (ISO)'] = df['Week number (ISO)'].astype(int)
         df = df.sort_values('Week number (ISO)').reset_index(drop=True)
@@ -60,25 +62,26 @@ def build_dimension_df(client, data_source, comparison_type):
     """
     Build a DataFrame from client['dimension_data'][data_source] for graph rendering.
     comparison_type: 'timeseries' | 'mom' | 'yoy'
-    For timeseries: columns are [dimension_col, 'Week number (ISO)', ...metrics]
-    For mom/yoy: columns are [dimension_col, ...metrics] using curr values
+    For timeseries: columns are [dimension_col, time_dimension_col, ...metrics] using curr values.
+    For mom/yoy: columns are [dimension_col, ...metrics] using curr values only.
     """
     dim_entry = client.get('dimension_data', {}).get(data_source, {})
     data = dim_entry.get(comparison_type, {})
     dimension_col = data_source.split('::')[0]
+    time_col = dim_entry.get('time_dimension', 'Week number (ISO)')
     rows = []
 
     if comparison_type == 'timeseries':
-        for dim_val, weeks in data.items():
-            for week_str, metrics in weeks.items():
-                row = {dimension_col: dim_val, 'Week number (ISO)': int(week_str)}
+        for dim_val, time_data in data.items():
+            for time_key, metrics in time_data.items():
+                parsed_key = int(time_key) if time_col in ('Week number (ISO)', 'Year') else time_key
+                row = {dimension_col: dim_val, time_col: parsed_key}
                 for metric, vals in metrics.items():
                     row[metric] = _parse_val(vals.get('curr', '0') if isinstance(vals, dict) else vals)
                 rows.append(row)
-        df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=[dimension_col, 'Week number (ISO)'])
+        df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=[dimension_col, time_col])
         if not df.empty:
-            df['Week number (ISO)'] = df['Week number (ISO)'].astype(int)
-            df = df.sort_values('Week number (ISO)').reset_index(drop=True)
+            df = df.sort_values(time_col).reset_index(drop=True)
     else:
         for dim_val, metrics in data.items():
             if not isinstance(metrics, dict):
@@ -92,11 +95,38 @@ def build_dimension_df(client, data_source, comparison_type):
     return df
 
 
+def build_comparison_df(client, data_source, comparison_type):
+    """
+    Build a long-format DataFrame for comparison charts.
+    Returns rows with [dimension_col, 'Period', ...metrics] where Period is 'Current' or 'Previous'.
+    comparison_type: 'mom' | 'yoy'
+    """
+    dim_entry = client.get('dimension_data', {}).get(data_source, {})
+    data = dim_entry.get(comparison_type, {})
+    dimension_col = data_source.split('::')[0]
+    rows = []
+    for dim_val, metrics in data.items():
+        if not isinstance(metrics, dict):
+            continue
+        curr_row = {dimension_col: dim_val, 'Period': 'Current'}
+        prev_row = {dimension_col: dim_val, 'Period': 'Previous'}
+        for metric, vals in metrics.items():
+            if isinstance(vals, dict):
+                curr_row[metric] = _parse_val(vals.get('curr', '0'))
+                prev_row[metric] = _parse_val(vals.get('prev', '0'))
+            else:
+                curr_row[metric] = _parse_val(vals)
+                prev_row[metric] = 0.0
+        rows.extend([curr_row, prev_row])
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=[dimension_col, 'Period'])
+
+
 def _build_df_for_spec(client, spec):
     """Return the correctly sourced and filtered DataFrame for a graph spec."""
     data_source = spec.get('data_source')
     if data_source:
-        ct = 'timeseries' if spec.get('dimensions', {}).get('x') == 'Week number (ISO)' else 'mom'
+        x_dim = spec.get('dimensions', {}).get('x', '')
+        ct = 'timeseries' if x_dim in TIME_DIMENSIONS else 'mom'
         df = build_dimension_df(client, data_source, ct)
     else:
         df = build_monthly_df(client)
@@ -139,8 +169,10 @@ def render_line_chart(graph, client):
     df = _build_df_for_spec(client, graph)
 
     metrics = [m for m in metrics if m in df.columns]
+    if not metrics:
+        return None
     if x_col not in df.columns or x_col in metrics:
-        x_col = 'Week number (ISO)'
+        x_col = next((td for td in TIME_DIMENSIONS if td in df.columns), 'Week number (ISO)')
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
     df = df.groupby(x_col, as_index=False)[metrics].sum()
@@ -230,6 +262,8 @@ def render_bar_chart(graph, client):
     df = _build_df_for_spec(client, graph)
 
     metrics = [m for m in metrics if m in df.columns]
+    if not metrics:
+        return None
     if x_col not in df.columns or x_col in metrics:
         x_col = 'Week number (ISO)'
     for metric in metrics:
@@ -295,6 +329,8 @@ def render_stacked_bar_chart(graph, client):
     df = _build_df_for_spec(client, graph)
 
     metrics_present = [m for m in metrics if m in df.columns]
+    if not metrics_present:
+        return None
     if x_col not in df.columns or x_col in metrics_present:
         x_col = 'Week number (ISO)'
     for m in metrics_present:
@@ -628,6 +664,163 @@ def render_scatter_chart(graph, client):
     return path
 
 
+def render_comparison_bar_chart(graph, client):
+    # ── 1. EXTRACT THE SPEC ──────────────────────────────────────────
+    title      = graph["title"]
+    x_col      = graph["dimensions"]["x"]
+    metrics    = graph["metrics"][:1]
+    comparison = graph.get("comparison", "mom")
+    data_source = graph.get("data_source")
+
+    if not data_source:
+        return None
+
+    # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
+    df = build_comparison_df(client, data_source, comparison)
+    metrics = [m for m in metrics if m in df.columns]
+    if not metrics or x_col not in df.columns:
+        return None
+
+    metric = metrics[0]
+    df[metric] = pd.to_numeric(df[metric], errors='coerce')
+
+    # Sort dimension values by current period descending
+    curr_vals = df[df['Period'] == 'Current'].set_index(x_col)[metric]
+    sorted_dims = curr_vals.sort_values(ascending=False).index.tolist()
+
+    # ── 3. CREATE THE FIGURE ─────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # ── 4. PLOT GROUPED BARS ─────────────────────────────────────────
+    bar_width = 0.35
+    x = range(len(sorted_dims))
+
+    for i, period in enumerate(['Current', 'Previous']):
+        period_df = df[df['Period'] == period].set_index(x_col).reindex(sorted_dims).reset_index()
+        colour = BRAND["colours"][i % len(BRAND["colours"])]
+        offset = (i - 0.5) * bar_width
+        ax.bar(
+            [pos + offset for pos in x],
+            period_df[metric],
+            width=bar_width,
+            label=period,
+            color=colour,
+            alpha=0.9
+        )
+
+    # ── 5. FORMATTING ────────────────────────────────────────────────
+    ax.set_title(title, fontsize=14, fontweight="bold", pad=12, color=BRAND["quaternary"])
+    ax.set_xlabel(x_col, fontsize=11)
+    ax.set_ylabel(metric, fontsize=11)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(sorted_dims, rotation=45, ha='right')
+    if metric in PCT_METRICS:
+        ax.yaxis.set_major_formatter(_PCT_FMT)
+    ax.grid(True, alpha=0.2, axis='y')
+    ax.legend(facecolor=BRAND["background"], edgecolor=BRAND["quaternary"])
+    plt.tight_layout()
+
+    # ── 6. SAVE AND RETURN ───────────────────────────────────────────
+    charts_dir = os.path.join(PROJECT_ROOT, "charts")
+    os.makedirs(charts_dir, exist_ok=True)
+    path = os.path.join(charts_dir, f"{title.replace(' ', '_')}.png")
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    return path
+
+
+def render_comparison_line_chart(graph, client):
+    # ── 1. EXTRACT THE SPEC ──────────────────────────────────────────
+    title      = graph["title"]
+    metrics    = graph["metrics"][:1]
+    comparison = graph.get("comparison", "mom")
+    data_source = graph.get("data_source")
+
+    # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
+    if data_source:
+        df = build_dimension_df(client, data_source, 'timeseries')
+        time_col = client.get('dimension_data', {}).get(data_source, {}).get('time_dimension', 'Week number (ISO)')
+    else:
+        df = build_monthly_df(client)
+        time_col = 'Week number (ISO)'
+
+    df = _apply_monthly_filters(df, graph.get('filters', '{}'))
+    metrics = [m for m in metrics if m in df.columns]
+    if not metrics or time_col not in df.columns:
+        return None
+
+    metric = metrics[0]
+    df[metric] = pd.to_numeric(df[metric], errors='coerce')
+    df = df.groupby(time_col, as_index=False)[metric].sum()
+    df = df.sort_values(time_col).reset_index(drop=True)
+
+    # ── 3. SPLIT INTO CURRENT AND PREVIOUS PERIOD ────────────────────
+    def _ts(val):
+        return val if isinstance(val, pd.Timestamp) else pd.Timestamp(val)
+
+    start      = _ts(client['start_date'])
+    end        = _ts(client['end_date'])
+    comp_key   = 'yoy' if comparison == 'yoy' else 'mom'
+    prev_start = _ts(client[f'compare_start_{comp_key}'])
+    prev_end   = _ts(client[f'compare_end_{comp_key}'])
+
+    def _keys_in_range(s, e):
+        dates = pd.date_range(s, e, freq='D')
+        if time_col == 'Week number (ISO)':
+            return sorted(set(int(w) for w in dates.isocalendar().week))
+        elif time_col == 'Month':
+            return sorted(set(d.to_period('M').strftime('%Y-%m') for d in dates))
+        elif time_col == 'Year':
+            return sorted(set(d.year for d in dates))
+        else:
+            return sorted(set(d.strftime('%Y-%m-%d') for d in dates))
+
+    curr_keys = _keys_in_range(start, end)
+    prev_keys = _keys_in_range(prev_start, prev_end)
+
+    curr_df = df[df[time_col].isin(curr_keys)].sort_values(time_col).reset_index(drop=True)
+    prev_df = df[df[time_col].isin(prev_keys)].sort_values(time_col).reset_index(drop=True)
+    curr_df['_pos'] = range(1, len(curr_df) + 1)
+    prev_df['_pos'] = range(1, len(prev_df) + 1)
+
+    # ── 4. CREATE THE FIGURE ─────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # ── 5. PLOT BOTH PERIOD LINES ────────────────────────────────────
+    if not curr_df.empty:
+        ax.plot(curr_df['_pos'], curr_df[metric], linewidth=2.5, marker='o', markersize=4,
+                label='Current', color=BRAND["colours"][0])
+        ax.fill_between(curr_df['_pos'], curr_df[metric], alpha=0.1, color=BRAND["colours"][0])
+
+    if not prev_df.empty:
+        ax.plot(prev_df['_pos'], prev_df[metric], linewidth=2.5, marker='o', markersize=4,
+                label='Previous', color=BRAND["colours"][1], linestyle='--')
+        ax.fill_between(prev_df['_pos'], prev_df[metric], alpha=0.1, color=BRAND["colours"][1])
+
+    # ── 6. FORMATTING ────────────────────────────────────────────────
+    unit_label = 'Week' if time_col == 'Week number (ISO)' else ('Month' if time_col == 'Month' else 'Period')
+    max_pos = max(len(curr_df), len(prev_df), 1)
+    ax.set_xticks(range(1, max_pos + 1))
+    ax.set_xticklabels([f'{unit_label} {i}' for i in range(1, max_pos + 1)])
+
+    ax.set_title(title, fontsize=14, fontweight="bold", pad=12, color=BRAND["quaternary"])
+    ax.set_xlabel('Position in Period', fontsize=11)
+    ax.set_ylabel(metric, fontsize=11, color=BRAND["quaternary"])
+    if metric in PCT_METRICS:
+        ax.yaxis.set_major_formatter(_PCT_FMT)
+    ax.grid(True, alpha=0.3)
+    ax.legend(facecolor=BRAND["background"], edgecolor=BRAND["quaternary"])
+    plt.tight_layout()
+
+    # ── 7. SAVE AND RETURN ───────────────────────────────────────────
+    charts_dir = os.path.join(PROJECT_ROOT, "charts")
+    os.makedirs(charts_dir, exist_ok=True)
+    path = os.path.join(charts_dir, f"{title.replace(' ', '_')}.png")
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    return path
+
+
 def initialise_brand():
     font_dir = os.path.join(PROJECT_ROOT, "fonts")
     for font_file in os.listdir(font_dir):
@@ -651,12 +844,14 @@ def initialise_brand():
 
 # Dictionary containing all the graph types and the functions that correspond to them
 GRAPH_REGISTRY = {
-    "line":       render_line_chart,
-    "bar":        render_bar_chart,
-    "stacked_bar": render_stacked_bar_chart,
-    "pie":    render_pie_chart,
-    "line_bar_combo": render_line_bar_combo_chart,
+    "line":             render_line_chart,
+    "bar":              render_bar_chart,
+    "stacked_bar":      render_stacked_bar_chart,
+    "pie":              render_pie_chart,
+    "line_bar_combo":   render_line_bar_combo_chart,
     "horizontal_bar":   render_horizontal_bar_chart,
     "scatter":          render_scatter_chart,
+    "comparison_bar":   render_comparison_bar_chart,
+    "comparison_line":  render_comparison_line_chart,
 }
 

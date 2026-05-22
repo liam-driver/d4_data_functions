@@ -2,21 +2,21 @@
   {
     "column_name": "Ad Platform",
     "label": "Ad Platform",
-    "requires_channel_filter": false
+    "suggested_filters": []
   },
   {
     "column_name": "Asset",
     "label": "Asset",
-    "requires_channel_filter": true
+    "suggested_filters": ["Ad Channel"]
   },
   {
     "column_name": "Campaign",
     "label": "Campaign",
-    "requires_channel_filter": true
+    "suggested_filters": ["Ad Channel", "Ad Platform"]
   },
   {
     "column_name": "Campaign Group",
     "label": "Campaign Group",
-    "requires_channel_filter": true
+    "suggested_filters": ["Ad Channel", "Ad Platform"]
   }
 ]

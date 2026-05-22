@@ -19,7 +19,7 @@ class TimestampEncoder(json.JSONEncoder):
 
 
 def config_monthly_dates(client):
-    """Derive date windows for the previous full calendar month plus MoM and YoY comparisons."""
+    """Derive date windows for the previous full calendar month plus MoM, YoY, and MTD comparisons."""
     now = pd.Timestamp.now()
     first_of_current_month = now.replace(day=1).normalize()
 
@@ -32,7 +32,15 @@ def config_monthly_dates(client):
     compare_start_yoy = (start_date - pd.DateOffset(years=1)).normalize()
     compare_end_yoy = (compare_start_yoy + MonthEnd(0)).normalize()
 
-    return start_date, end_date, compare_start_mom, compare_end_mom, compare_start_yoy, compare_end_yoy
+    # MTD: 1st of current month to today minus 2 days, compared to same days last year
+    mtd_start_date = first_of_current_month
+    mtd_end_date = (now - pd.DateOffset(days=2)).normalize()
+    compare_start_mtd = (first_of_current_month - pd.DateOffset(years=1)).normalize()
+    compare_end_mtd = (mtd_end_date - pd.DateOffset(years=1)).normalize()
+
+    return (start_date, end_date, compare_start_mom, compare_end_mom,
+            compare_start_yoy, compare_end_yoy,
+            mtd_start_date, mtd_end_date, compare_start_mtd, compare_end_mtd)
 
 
 def run_monthly_report(client_name, data_only=False):
@@ -45,7 +53,9 @@ def run_monthly_report(client_name, data_only=False):
     if client is None:
         raise ValueError(f"Client '{client_name}' not found in config")
 
-    start_date, end_date, compare_start_mom, compare_end_mom, compare_start_yoy, compare_end_yoy = config_monthly_dates(client)
+    (start_date, end_date, compare_start_mom, compare_end_mom,
+     compare_start_yoy, compare_end_yoy,
+     mtd_start_date, mtd_end_date, compare_start_mtd, compare_end_mtd) = config_monthly_dates(client)
 
     client['start_date'] = start_date
     client['end_date'] = end_date
@@ -90,6 +100,23 @@ def run_monthly_report(client_name, data_only=False):
 
         # Timeseries (90-day window, no comparison)
         client['timeseries_data'] = get_funnel_data(client, ts_type)
+
+        # MTD pass: current month 1st → today-2, compared to same days last year
+        if mtd_end_date >= mtd_start_date:
+            client['start_date'] = mtd_start_date
+            client['end_date'] = mtd_end_date
+            client['compare_start_date'] = compare_start_mtd
+            client['compare_end_date'] = compare_end_mtd
+            client['paid_data_mtd'] = get_funnel_data(client, paid_type)
+            client['llm_data_mtd'] = get_funnel_data(client, llm_type)
+            client['overall_data_mtd'] = get_funnel_data(client, overall_type)
+            client['mtd_start_date_string'] = mtd_start_date.strftime("%d/%m/%Y")
+            client['mtd_end_date_string'] = mtd_end_date.strftime("%d/%m/%Y")
+            client['compare_start_mtd'] = compare_start_mtd
+            client['compare_end_mtd'] = compare_end_mtd
+            # Restore main period dates
+            client['start_date'] = start_date
+            client['end_date'] = end_date
 
         # Alias MoM as the primary paid_data so existing helpers (add_kpi_boxes, get_run_rate) work
         client['paid_data'] = client['paid_data_mom']

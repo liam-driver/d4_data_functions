@@ -17,7 +17,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.patches import Patch
-from core.generate_commentary import generate_monthly_slide_content
+from core.generate_commentary import generate_monthly_slide_content, generate_mtd_slide_content
 from monthly_reports.generate_visualisation import render_graph, initialise_brand, BRAND
 
 initialise_brand()
@@ -197,8 +197,8 @@ def _add_kpi_boxes(slide, kpis, start_x=Inches(7.1), start_y=None,
         run3.font.color.rgb = C["dark"]
 
 
-def _build_kpis(client):
-    paid_total = client.get('paid_data', {}).get('Total', {})
+def _build_kpis_for(client, data_key='paid_data'):
+    paid_total = client.get(data_key, {}).get('Total', {})
     if client.get('account_type') == 'Lead Gen':
         return [
             ('Cost',        paid_total.get('Cost', {})),
@@ -500,12 +500,15 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
 
     if slide_content is None:
         slide_content = generate_monthly_slide_content(client)
+        mtd_content = generate_mtd_slide_content(client)
+        slide_content = {**slide_content, **mtd_content}
     client['slide_content'] = slide_content
     content_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_content.json")
     with open(content_path, "w", encoding="utf-8") as f:
         json.dump(client['slide_content'], f, ensure_ascii=False, indent=2)
 
-    current_month = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B")
+    prev_month = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B")
+    current_month = prev_month  # kept for the Actions slide label below
 
     if output_path is None:
         output_path = os.path.join(PROJECT_ROOT, "slides", f"{client_name}_monthly.pptx")
@@ -517,14 +520,14 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
     prs.part.drop_rel(slide_rid)
     prs.slides._sldIdLst.remove(prs.slides._sldIdLst[0])
 
-    kpis = _build_kpis(client)
+    kpis = _build_kpis_for(client, 'paid_data')
     sc   = client['slide_content']
 
     slide_cover(prs, f'{client["name"]} Monthly Deck')
 
     slide_section_separator(prs, 'Paid Media', variant='navy')
 
-    slide_section_separator(prs, 'Performance Overview', variant='gold')
+    slide_section_separator(prs, f'{prev_month} Performance Overview', variant='gold')
     slide_scorecard_commentary(
         prs,
         title=   'Top Level View',
@@ -533,17 +536,33 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
         kpis=    kpis,
     )
 
+    mtd_start_str = client.get('mtd_start_date_string')
+    if mtd_start_str and sc.get('mtd_overview'):
+        mtd_month = datetime.strptime(mtd_start_str, "%d/%m/%Y").strftime("%B")
+        mtd_kpis = _build_kpis_for(client, 'paid_data_mtd')
+        slide_section_separator(prs, f'{mtd_month} TD Performance Overview', variant='gold')
+        slide_scorecard_commentary(
+            prs,
+            title=   'Month to Date View',
+            summary= sc['mtd_overview']['summary'],
+            bullets= sc['mtd_overview']['bullets'],
+            kpis=    mtd_kpis,
+        )
+
     slide_section_separator(prs, 'Top Level Trends', variant='gold')
     for trend in sc['trends']:
         chart_path = render_graph(client, trend['graph'])
-        slide_chart_commentary(
-            prs,
-            title=      trend['title'],
-            summary=    trend['summary'],
-            bullets=    trend['bullets'],
-            chart_path= chart_path,
-            date_range= trend['graph']['date_range'],
-        )
+        if chart_path:
+            slide_chart_commentary(
+                prs,
+                title=      trend['title'],
+                summary=    trend['summary'],
+                bullets=    trend['bullets'],
+                chart_path= chart_path,
+                date_range= trend['graph']['date_range'],
+            )
+        else:
+            slide_commentary(prs, trend['title'], trend['summary'], trend['bullets'])
 
     slide_section_separator(prs, f'{current_month} Actions', variant='gold')
     action_bullets = [
