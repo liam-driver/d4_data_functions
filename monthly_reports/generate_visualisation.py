@@ -126,12 +126,13 @@ def _build_df_for_spec(client, spec):
     data_source = spec.get('data_source')
     style = spec.get('style', 'trend')
     if data_source:
-        if style in ('comparison', 'distribution'):
-            ct = 'mom'
+        if style == 'comparison':
+            comparison = spec.get('comparison', 'yoy')
+            df = build_comparison_df(client, data_source, comparison)
         else:
             x_dim = spec.get('dimensions', {}).get('x', '')
             ct = 'timeseries' if x_dim in TIME_DIMENSIONS else 'mom'
-        df = build_dimension_df(client, data_source, ct)
+            df = build_dimension_df(client, data_source, ct)
     else:
         df = build_monthly_df(client)
     return _apply_monthly_filters(df, spec.get('filters', '{}'))
@@ -282,8 +283,15 @@ def render_bar_chart(graph, client):
     metrics = [m for m in metrics if m in df.columns]
     if not metrics:
         return None
-    x_col    = _resolve_x_col(graph, df, metrics)
-    group_by = graph.get('dimensions', {}).get('group_by')
+
+    # Comparison df (has Period column): dimension is x, Period is group_by
+    data_source = graph.get('data_source')
+    if 'Period' in df.columns and data_source:
+        x_col = data_source.split('::')[0]
+        group_by = 'Period'
+    else:
+        x_col = _resolve_x_col(graph, df, metrics)
+        group_by = graph.get('dimensions', {}).get('group_by')
     use_group_by = bool(group_by and group_by in df.columns and group_by != x_col)
 
     for metric in metrics:

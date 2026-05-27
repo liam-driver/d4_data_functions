@@ -1,6 +1,6 @@
 ---
 name: wol
-description: When the user asks for a WOL message, generate a Slack-ready update summarising the work completed in the current conversation.
+description: When the user asks for a WOL message, generate a Working Out Loud update summarising the work completed in the current conversation. Output in chat only — Slack is used for tone context, not for sending.
 ---
 
 ## What is a WOL
@@ -33,7 +33,7 @@ Not every WOL needs all four. If there's no meaningful "why" or no clear next st
 
 ### Step 3: Output
 
-Output the message only — no explanation, no preamble, no "here's your WOL." Just the message, ready to copy-paste into Slack.
+Output the message directly in the chat window — no explanation, no preamble, no "here's your WOL." Just the message, ready to copy-paste into Slack. Do not send the message to Slack or any other channel. The Slack MCP is used only to fetch context in Step 1, never to post.
 
 ---
 
@@ -44,7 +44,9 @@ Output the message only — no explanation, no preamble, no "here's your WOL." J
 - Slightly more considered than a pure stream of consciousness, but still natural
 - Specific: name the client, the platform, the campaigns, the numbers where relevant
 - British English
-- No bullet points, no headers, no formatting — plain flowing prose only
+- Plain flowing prose by default, but headers and bullet points are fine if they make the message more readable and glanceable
+- Keep it skimmable — a colleague scanning Slack should immediately understand what's happening in the account
+- Never use em dashes (—). Rewrite the sentence if needed. Em dashes read as AI output and will cause people to tune out.
 - Length: 3–6 sentences is the target. Long enough to be informative, short enough to be skimmable
 
 ---

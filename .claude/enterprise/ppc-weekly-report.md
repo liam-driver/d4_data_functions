@@ -28,20 +28,36 @@ Read `slack_channel_id` from the client data. If set, use the Slack MCP to:
 
 If `slack_channel_id` is empty, skip and note no Slack context is available.
 
-### Step 3: Generate and present draft
+### Step 3: Ask for user observations
 
-Using all data from Step 1 and Slack context from Step 2:
+Before writing the draft, ask: **"Before I write this up — any observations or data points you want me to work in? Share numbers, trends, or context and I'll weave them in."**
+
+Wait for the user's response before proceeding. If the user has nothing to add, continue to Step 4.
+
+### Step 4: Generate and present full draft
+
+Using all data from Steps 1–2 and any user observations from Step 3:
 1. Generate commentary following all rules in the **Commentary Rules** section below
 2. Render a **human-readable markdown preview** of the full report using the **Markdown Preview Format** section below
-3. Output the preview clearly in chat and invite the user to give feedback or approve
+3. Output the preview clearly in chat and ask: **"Happy with the content? Let me know any changes or share further observations and I'll weave them in. Say 'looks good' when you're happy and I'll produce the shortened version ready to send."**
 
-### Step 4: Iterate on feedback
+### Step 5: Iterate on content
 
-Prompt user for feedback and respond to user feedback by updating the relevant sections and re-rendering the full markdown preview. Repeat until the user explicitly approves and asks to send.
+Respond to user feedback by updating the relevant sections and re-rendering the full markdown preview. Repeat until the user confirms the content is good (e.g. "looks good", "happy with that").
 
-### Step 5: Generate HTML and send
+### Step 6: Shorten and confirm
 
-Once the user approves:
+Once the user confirms the content:
+1. Produce a shortened version applying these rules:
+   - `performance_overview`: max 2 sentences
+   - `ninety_day_overview`: max 2 sentences
+   - Each `performance_points` summary: max 2 sentences
+   - All other sections unchanged
+2. Present the shortened markdown preview and ask: **"Happy with this? Say 'send it' to email the report."**
+
+### Step 7: Generate HTML and send
+
+Once the user approves the shortened version:
 1. Generate the full HTML email body using the **HTML Template** section below, substituting all placeholders with the actual client data and approved commentary
 2. Call the `send_weekly_report_html` MCP tool with:
    - `client_name` = the client name the user provided
@@ -117,6 +133,8 @@ Apply at all times when selecting evidence and framing points:
 - Explicitly reference the 90-day plan where a plan item plausibly links to a performance movement.
 - For acronyms (ROAS, CPA, etc.) style in all caps. Not all metric names — only acronyms.
 - Use British standard date format (dd/mm/yyyy).
+- Never use em-dashes (—) under any circumstances. Use commas or full stops instead.
+- Number all list items as `1)` — never `1.)`. No period before the closing parenthesis.
 - It is essential that the client context documents in this project are used — client goals, KPIs, seasonality, and historical context must inform the commentary. We compare performance against our own stated goals.
 - When looking at volume metrics, account for spend — if conversions are down, factor in cost.
 - Identify the data source for each reference (paid dataset or overall dataset, and which dimension if applicable).
@@ -138,6 +156,7 @@ Apply at all times when selecting evidence and framing points:
 - Thresholds: only create a point if ≥10% change in a Tier 1/2 metric, or channel is ≥20% of total cost, or a clear multi-metric pattern exists
 - Low-spend channels (<10% of cost): require ≥20% Tier 1/2 change to mention
 - Do not anchor a point solely on Impressions or Clicks
+- Never generate a point sourced from `overall_data` (site-wide GA4). Overall site data is context only — use it within a PPC insight to add perspective, never as the basis for a standalone point
 
 ---
 
@@ -156,7 +175,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 **WIP**
 
-1. **[task.task]** | [task.status] | Due [task.end_date]
+1) **[task.task]** | [task.status] | Due [task.end_date]
    [task.summary]
 
 (repeat for each current task)
@@ -177,7 +196,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 **Insights**
 
-1. **[point.title]**
+1) **[point.title]**
    [point.summary]
 
 (repeat for each performance point)
@@ -202,7 +221,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 ---
 
-After presenting the preview, ask: **"Happy with this? Let me know any changes, or say 'send it' to email the report."**
+After presenting the full draft, ask: **"Happy with the content? Let me know any changes or share further observations and I'll weave them in. Say 'looks good' when you're happy and I'll produce the shortened version ready to send."**
 
 ---
 
@@ -281,9 +300,29 @@ When the user approves and asks to send, generate the following HTML exactly, su
 
 Add any per-client customisations below. Each client section can override commentary rules, adjust which sections are included, or add bespoke instructions that apply only to that client.
 
-<!-- No client-specific overrides yet. Add as needed:
+### Harrisons
+
+Harrisons has two datasets: registrations (primary conversion) and revenue (secondary conversion). Both must be represented in commentary and the KPIs section.
+
+**Commentary**: Reference both registrations and revenue in insight points where relevant. Registrations is the primary KPI — lead with registrations data, then reference revenue as supporting context.
+
+**KPIs section**: Use two labeled sub-sections, registrations always first. The format from the last Harrisons report:
+
+```
+KPIs (Registrations):
+
+- [Dimension]: [Conversions curr] Conversions ([pct]) @ [CPA curr] CPA ([pct])
+
+KPIs (Revenue):
+
+- [Dimension]: [Transaction Revenue curr] Transaction Revenue ([pct]) @ [ROAS curr] ROAS ([pct])
+```
+
+In HTML, render as two separate `<p><b>KPIs (Registrations):</b></p>` and `<p><b>KPIs (Revenue):</b></p>` blocks, each with their own `<ul>` of `<li>` items. Total row last in each block.
+
+<!-- Add further client overrides below as needed:
 
 ### [Client Name]
-[Description of what's different for this client — e.g. exclude 90 Day Overview, use different KPI framing, etc.]
+[Description of what's different for this client]
 
 -->
