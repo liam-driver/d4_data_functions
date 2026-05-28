@@ -172,6 +172,9 @@ def get_dimension_cut(client, dimension_column, filters=None):
     }
 
     df = apply_filters(df, client, breakdown_dimension, date_range)
+    for col in ('Ad Channel', 'Ad Platform'):
+        if col in df.columns:
+            df = df[df[col].notna() & (df[col] != '')]
     df = _apply_scope_filters(df, filters)
 
     columns_set = set(df.columns.tolist())
@@ -227,6 +230,9 @@ def get_dimension_timeseries(client, dimension_column, filters=None, time_dimens
         (df[dimension_column] != '')
     )
     df = df.loc[mask].copy()
+    for col in ('Ad Channel', 'Ad Platform'):
+        if col in df.columns:
+            df = df[df[col].notna() & (df[col] != '')]
     df = _apply_scope_filters(df, filters)
 
     if df.empty:

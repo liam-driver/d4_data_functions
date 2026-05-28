@@ -68,29 +68,57 @@ Confirm the date range for this slide. Default is **MTD** — proceed with MTD u
 | Last 90 Days | `last_90_days` | today−91 → today−2 | 90 days before that | Same 90 days, −1 year |
 | Year-to-Date | `ytd` | 1 Jan → today−2 | *(none)* | Same range, −1 year |
 
-**2c. Fetch slide data**
+**2c. Define the data cut**
 
-Call `fetch_trend_data` with the agreed topic. Pass:
+Before fetching, present the user with a structured menu to confirm the exact data cut. Pre-select values based on the agreed topic using these rules:
+
+- **Dimension** — derived from the topic (e.g. "by campaign" → `Campaign`, "by asset" → `Asset`, "by platform" → `Ad Platform`). If no breakdown was specified, default to `Ad Platform`.
+- **Channel** — if the topic names a specific channel (e.g. "Paid Search by campaign"), pre-select that channel. If the topic is cross-channel or unspecified, leave open (all channels).
+- **Platform** — default to all platforms unless the topic explicitly names one (e.g. "Google campaigns" → `Google Ads`).
+
+Render the menu in this format. Show only channels and platforms that exist in this client's data — derive channels from the `timeseries` keys returned in step 1a, and platforms from the `mom.llm_data` keys:
+
+---
+
+**Data cut for: [topic]**
+
+**Breakdown dimension** — one of:
+`Campaign` · `Campaign Group` · `Asset` · `Ad Platform`
+→ Pre-selected: **[dimension]**
+
+**Ad Channel scope** — select one, multiple, or leave open:
+[list client channels from timeseries keys] · *(all channels)*
+→ Pre-selected: **[channel or "all channels"]**
+
+**Ad Platform scope** *(optional)* — select one, multiple, or leave open:
+[list client platforms from mom.llm_data keys] · *(all platforms)*
+→ Pre-selected: **[platform or "all platforms"]**
+
+---
+
+Wait for the user to confirm or adjust. Do not call `fetch_trend_data` until this menu is confirmed. When the user selects multiple channels or platforms, use `channel_filter` or `platform_filter` instead of `channel`/`platform`.
+
+**2d. Fetch slide data**
+
+Call `fetch_trend_data` with the user-confirmed data cut. Pass:
 - `client_name`
-- `dimension` — the breakdown dimension column name (e.g. `Campaign`, `Asset`, `Campaign Group`, `Ad Platform`)
-- `channel` — the Ad Channel to scope to (e.g. `Paid Search`, `Shopping`, `Paid Social Static`, `Display`). Leave empty to include all channels.
-- `channel_filter` (optional) — JSON string `{"type": "include"|"exclude", "channels": [...]}` for multi-channel or exclusion scoping. If omitted, data is scoped to `channel` only.
-- `platform` (optional) — the Ad Platform to scope to. Must match the exact value in the sheet: `Google Ads`, `Microsoft Ads`, `Facebook Ads`, `TikTok Ads`. Leave empty for all platforms.
-- `platform_filter` (optional) — JSON string `{"type": "include"|"exclude", "platforms": [...]}` for multi-platform or exclusion scoping.
-- `date_range` — one of `mtd` (default), `previous_7_days`, `last_90_days`, `ytd`.
+- `dimension` — the confirmed breakdown dimension column name
+- `channel` — the confirmed Ad Channel (single value). Leave empty if all channels or if using `channel_filter`.
+- `channel_filter` (optional) — JSON string `{"type": "include", "channels": [...]}` for multi-channel scoping. Use when the user has selected more than one channel.
+- `platform` (optional) — the confirmed Ad Platform (single value). Leave empty if all platforms or if using `platform_filter`.
+- `platform_filter` (optional) — JSON string `{"type": "include", "platforms": [...]}` for multi-platform scoping. Use when the user has selected more than one platform.
+- `date_range` — the confirmed date range from step 2b.
 - `time_dimension` (optional) — column to group the timeseries by. One of: `Week number (ISO)`, `Month`, `Year`, `Date`. **Leave empty to use the recommended default for the selected date_range** (returned as `default_time_dimension` in the response). Override only if the user requests a different granularity. **The graph spec's `dimensions.x` must match the `time_dimension` value in the response.**
-
-Use `suggested_filters` from `dimension_config.json` as a starting point for which channel/platform scoping makes sense for the chosen dimension — but the user can add, remove, or replace any filter. Filter values must exactly match values in the data (no reformatting). Omit `channel` and `platform` entirely for channel-only slides with no breakdown.
 
 The response includes `resolved_dates` (the exact date strings used), `date_range_label`, `prev_period_available` (false for YTD), and `default_time_dimension`. Show the resolved dates to the user after fetching so they can confirm the window.
 
 The returned `data_key` is the canonical key for this slide's data — use it verbatim as `data_source` in the graph spec. This is **mandatory for every trend slide, no exceptions**. The renderer will error if `data_source` is absent. Report a brief progress update while fetching.
 
-**2d. Confirm the template**
+**2e. Confirm the template**
 
 Based on the fetched data, propose a slide template — the layout type that best fits the data (e.g. chart + commentary, commentary only). State your reasoning briefly. Wait for the user to confirm or redirect before proceeding.
 
-**2e. Render the slide**
+**2f. Render the slide**
 
 Once the template is confirmed, render the full slide in the **Slide Preview Format** section below — title, summary, bullets, and graph spec. Follow all Commentary Rules when generating content.
 
@@ -102,11 +130,11 @@ The tool returns the chart as an inline image — display it directly below the 
 
 If the tool returns an error, surface it verbatim and do not offer confirmation — fix the spec first.
 
-**2f. Iterate**
+**2g. Iterate**
 
 Respond to user feedback by re-rendering the slide. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
 
-**2g. Confirm and continue**
+**2h. Confirm and continue**
 
 Slide is locked in. Ask the user if they want to add another trend topic or move to the confirmation gate.
 
@@ -348,7 +376,7 @@ The correct value depends on `style`:
 
 ### Valid dimensions.group_by
 
-`Ad Platform`, `Ad Channel`, `Channel`, `Campaign`
+`Ad Platform`, `Ad Channel`, `Channel`, `Campaign`, `Asset`
 
 For **trend** charts: set `group_by` to split data into multiple series — one line/bar cluster per value (e.g. one line per Campaign, one bar group per Ad Channel). The renderer uses the top 6 values by total of the first metric. Omit for single-aggregate charts.
 For **comparison/distribution** charts: `group_by` is not needed — `dimensions.x` already identifies the category column.
