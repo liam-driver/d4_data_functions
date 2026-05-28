@@ -114,13 +114,30 @@ The response includes `resolved_dates` (the exact date strings used), `date_rang
 
 The returned `data_key` is the canonical key for this slide's data — use it verbatim as `data_source` in the graph spec. This is **mandatory for every trend slide, no exceptions**. The renderer will error if `data_source` is absent. Report a brief progress update while fetching.
 
-**2e. Confirm the template**
+**2e. Suggest and preview visualisation**
 
-Based on the fetched data, propose a slide template — the layout type that best fits the data (e.g. chart + commentary, commentary only). State your reasoning briefly. Wait for the user to confirm or redirect before proceeding.
+Based on the fetched data from step 2d, propose a graph spec. Before fetching, state the intended graph data cut — dimension, channel/platform scope, date_range, and time_dimension — with brief reasoning (e.g. "to show ROAS over time I'll fetch `dimension=Ad Channel, date_range=ytd, time_dimension=Month`"). Then call `fetch_trend_data` with those parameters.
+
+This is always a separate fetch from step 2d — call it independently regardless of whether the parameters appear similar. Never reuse the `data_key` from step 2d as `data_source`.
+
+Once the graph data returns:
+- Set `data_source` to the `data_key` from **this fetch**
+- Build the complete graph spec conforming to the **Graph Schema** below
+- Call `preview_graph` with the spec
+- Show the resolved dates and the preview image
+
+Wait for the user to confirm or challenge:
+- **Confirmed** → graph spec is locked. Advance to 2f.
+- **Challenged with a specific direction** → incorporate the feedback, re-state the updated data cut, re-call `fetch_trend_data`, rebuild the spec, re-preview. Repeat until confirmed.
+- **Challenged without a direction** → propose an alternative graph, re-state the new data cut, re-fetch, re-preview. Repeat until confirmed.
+
+If the data is too sparse or noisy to support a meaningful graph, flag this and proceed to 2f as a commentary-only slide — skip this step's fetch and loop.
+
+YoY timeseries (two lines on a shared date axis, e.g. 2025 vs 2026 week by week) is not supported by the data layer — do not suggest this graph type. For year-on-year comparisons use `style: comparison` with `previous_year` data instead.
 
 **2f. Render the slide**
 
-Once the template is confirmed, render the full slide in the **Slide Preview Format** section below — title, summary, bullets, and graph spec. Follow all Commentary Rules when generating content.
+Once the graph spec is confirmed in step 2e, render the full slide in the **Slide Preview Format** section below — title, summary, bullets, and graph spec. Use the graph spec locked in step 2e verbatim — do not regenerate it. Write all commentary using the data fetched in step 2d. Follow all Commentary Rules when generating content.
 
 Then preview the graph inline by calling the `preview_graph` MCP tool:
 - `client_name`: the client name
@@ -132,7 +149,7 @@ If the tool returns an error, surface it verbatim and do not offer confirmation 
 
 **2g. Iterate**
 
-Respond to user feedback by re-rendering the slide. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
+Respond to user feedback by re-rendering the slide. The graph spec is locked from step 2e — iterations are text and commentary only. Do not modify the graph spec. If the user asks to change the graph, return to step 2e. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
 
 **2h. Confirm and continue**
 
