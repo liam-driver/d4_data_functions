@@ -206,18 +206,19 @@ def get_dimension_cut(client, dimension_column, filters=None):
     return df_to_json(df_pivot, breakdown_dimension, metrics, table_type)
 
 
-def get_dimension_timeseries(client, dimension_column, filters=None, time_dimension='Week number (ISO)', start_date_override=None):
+def get_dimension_timeseries(client, dimension_column, filters=None, time_dimension='Week number (ISO)', start_date_override=None, end_date_override=None):
     """Timeseries data sliced by dimension_column, grouped by time_dimension.
 
     time_dimension: 'Week number (ISO)' | 'Month' | 'Year' | 'Date'
     start_date_override: ISO date string to extend the lookback beyond the default 90 days.
+    end_date_override: ISO date string to cap the window (e.g. for fetching a historical period).
     Returns {dim_val: {time_key: {metric: {curr}}}}."""
     df = initialise_df(client)
 
     if dimension_column not in df.columns:
         raise ValueError(f"Column '{dimension_column}' not found in sheet.")
 
-    end_date = client['end_date']
+    end_date = pd.Timestamp(end_date_override).normalize() if end_date_override else client['end_date']
     if start_date_override:
         start_date = pd.Timestamp(start_date_override).normalize()
     else:
@@ -344,23 +345,42 @@ def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platf
     client['compare_end_date']   = windows['yoy_end']
     data_previous_year = get_dimension_cut(client, dimension, filters)
 
-    # Timeseries: window driven by date_range
+    # Timeseries: current period window
     data_timeseries = get_dimension_timeseries(
         client, dimension, filters, effective_time_dimension,
-        windows['current_start'].strftime('%Y-%m-%d')
+        start_date_override=windows['current_start'].strftime('%Y-%m-%d'),
+        end_date_override=windows['current_end'].strftime('%Y-%m-%d'),
     )
+
+    # Timeseries: previous year window (always available)
+    data_yoy_timeseries = get_dimension_timeseries(
+        client, dimension, filters, effective_time_dimension,
+        start_date_override=windows['yoy_start'].strftime('%Y-%m-%d'),
+        end_date_override=windows['yoy_end'].strftime('%Y-%m-%d'),
+    )
+
+    # Timeseries: previous period window (not available for ytd)
+    if windows['prev_period_available']:
+        data_mom_timeseries = get_dimension_timeseries(
+            client, dimension, filters, effective_time_dimension,
+            start_date_override=windows['prev_start'].strftime('%Y-%m-%d'),
+            end_date_override=windows['prev_end'].strftime('%Y-%m-%d'),
+        )
+    else:
+        data_mom_timeseries = {}
 
     data_key = _build_data_key(dimension, filters, date_range)
 
     if not isinstance(client.get('dimension_data'), dict):
         client['dimension_data'] = {}
-    # Store under mom/yoy keys for renderer compatibility
     client['dimension_data'][data_key] = {
-        'date_range':     date_range,
-        'time_dimension': effective_time_dimension,
-        'mom':            data_previous_period,
-        'yoy':            data_previous_year,
-        'timeseries':     data_timeseries,
+        'date_range':      date_range,
+        'time_dimension':  effective_time_dimension,
+        'mom':             data_previous_period,
+        'yoy':             data_previous_year,
+        'timeseries':      data_timeseries,
+        'yoy_timeseries':  data_yoy_timeseries,
+        'mom_timeseries':  data_mom_timeseries,
     }
 
     from monthly_reports.main import TimestampEncoder

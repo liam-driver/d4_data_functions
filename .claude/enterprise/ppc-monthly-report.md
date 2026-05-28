@@ -133,7 +133,7 @@ Wait for the user to confirm or challenge:
 
 If the data is too sparse or noisy to support a meaningful graph, flag this and proceed to 2f as a commentary-only slide — skip this step's fetch and loop.
 
-YoY timeseries (two lines on a shared date axis, e.g. 2025 vs 2026 week by week) is not supported by the data layer — do not suggest this graph type. For year-on-year comparisons use `style: comparison` with `previous_year` data instead.
+YoY timeseries on a **shared calendar axis** (two lines plotted against their actual dates from different years) is not supported — do not suggest this. For period-over-period line comparisons, use `comparison_line` with positional alignment instead.
 
 **2f. Render the slide**
 
@@ -382,14 +382,16 @@ All graph specs must conform exactly to this schema. The pipeline will fail at r
 
 ### Valid graph_types
 
-`line`, `bar`, `stacked_bar`, `pie`, `line_bar_combo`, `horizontal_bar`, `scatter`
+`line`, `bar`, `stacked_bar`, `pie`, `line_bar_combo`, `horizontal_bar`, `scatter`, `comparison_bar`, `comparison_line`
 
 ### Valid dimensions.x
 
 The correct value depends on `style`:
 
 - **`style: trend`** — use a time column: `Week number (ISO)`, `Date`, `Month`, `Year`. The correct value is the `time_dimension` returned in the `fetch_trend_data` response — always use that value, do not guess. Default pairings: `previous_7_days` → `Date`; `mtd` → `Date`; `last_90_days` → `Week number (ISO)`; `ytd` → `Month`.
-- **`style: comparison` or `style: distribution`** — use the dimension column name: `Campaign`, `Ad Platform`, `Ad Channel`, `Campaign Group`. The renderer resolves the category column from `data_source` and ignores any time dimension that is absent from the data.
+- **`style: distribution`** — use the dimension column name: `Campaign`, `Ad Platform`, `Ad Channel`, `Campaign Group`. The renderer resolves the category column from `data_source` and ignores any time dimension that is absent from the data.
+- **`comparison_bar`** — use the dimension column name (e.g. `Campaign`, `Ad Channel`). There is no time axis; the x-axis categories each receive two bars (Current vs Previous).
+- **`comparison_line`** — use a time column, same rules as `style: trend`. The renderer aligns both periods positionally and labels the x-axis with the current period's actual time values.
 
 ### Valid dimensions.group_by
 
@@ -406,7 +408,7 @@ For **comparison/distribution** charts: `group_by` is not needed — `dimensions
 
 ### Valid styles
 
-`trend`, `comparison`, `distribution`
+`trend`, `distribution`, `comparison` (use only on `comparison_bar` and `comparison_line`)
 
 ### Constraints
 
@@ -414,6 +416,8 @@ For **comparison/distribution** charts: `group_by` is not needed — `dimensions
 - **`line_bar_combo`**: exactly 2 metrics — first rendered as bars (primary y-axis), second as a line (secondary y-axis).
 - **`pie`**: uses only the first metric; best for showing distribution across channels at a point in time.
 - **`scatter`**: exactly 2 metrics — first on the x-axis, second on the y-axis.
+- **`comparison_bar`**: exactly 1 metric. No `group_by`. The `comparison` field is required (`"mom"` or `"yoy"`). Confirm with the user which comparison period they want — `yoy` is typical but `mom` is valid when YoY data is unreliable. For `ytd`, `comparison` must always be `"yoy"`.
+- **`comparison_line`**: exactly 1 metric. No `group_by`. The `comparison` field is required (`"mom"` or `"yoy"`), same rules as above. The x-axis uses positional alignment labelled with the current period's actual time values.
 - Every graph must have a `filters` value — never `null`. At minimum, filter to the relevant ad channel.
 - Every trend slide **must** set `data_source` to the `data_key` returned by `fetch_trend_data` exactly. The key is the dimension column name, followed by `filterCol=filterVal` pairs sorted alphabetically, followed by `date_range=<value>`, all joined by `::`. Examples: `"Campaign::Ad Channel=Paid Search::date_range=mtd"`, `"Campaign::Ad Channel=Paid Search::Ad Platform=Google Ads::date_range=ytd"`, `"Ad Platform::date_range=last_90_days"`. Always copy the `data_key` from the response verbatim — never construct it manually. This tells the renderer to read from `dimension_data` in the cached JSON. There are no exceptions — the renderer will raise an error if `data_source` is missing.
 - `filters` must be a JSON-serialised string: e.g. `"{\"Ad Channel\": \"Paid Search\"}"`. Filter keys must be a valid dimension (e.g. `Ad Channel`, `Ad Platform`). Filter values must exactly match the values that appear in the data — do not snake_case, lowercase, or reformat them.
@@ -460,6 +464,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
         "filters": "string — JSON-serialised filter object e.g. \"{\\\"Ad Channel\\\": \\\"Paid Search\\\"}\"",
         "title": "string — chart title",
         "style": "string — one of: trend, comparison, distribution",
+        "comparison": "string — \"mom\" or \"yoy\". Required on comparison_bar and comparison_line. Confirmed with the user. For ytd, always \"yoy\". Omit on all other graph types.",
         "data_source": "string — required on every trend graph. Key into dimension_data, must exactly match the data_key returned by fetch_trend_data. Format: dimension column first, then filterCol=filterVal pairs sorted alphabetically, joined by ::. e.g. \"Campaign::Ad Channel=Paid Search::Ad Platform=Google\", \"Campaign::Ad Channel=Paid Search\", \"Ad Channel\"."
       }
     }

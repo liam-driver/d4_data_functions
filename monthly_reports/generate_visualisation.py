@@ -61,8 +61,8 @@ def _parse_val(raw):
 def build_dimension_df(client, data_source, comparison_type):
     """
     Build a DataFrame from client['dimension_data'][data_source] for graph rendering.
-    comparison_type: 'timeseries' | 'mom' | 'yoy'
-    For timeseries: columns are [dimension_col, time_dimension_col, ...metrics] using curr values.
+    comparison_type: 'timeseries' | 'yoy_timeseries' | 'mom_timeseries' | 'mom' | 'yoy'
+    For timeseries variants: columns are [dimension_col, time_dimension_col, ...metrics] using curr values.
     For mom/yoy: columns are [dimension_col, ...metrics] using curr values only.
     """
     dim_entry = client.get('dimension_data', {}).get(data_source, {})
@@ -71,7 +71,7 @@ def build_dimension_df(client, data_source, comparison_type):
     time_col = dim_entry.get('time_dimension', 'Week number (ISO)')
     rows = []
 
-    if comparison_type == 'timeseries':
+    if comparison_type in ('timeseries', 'yoy_timeseries', 'mom_timeseries'):
         for dim_val, time_data in data.items():
             for time_key, metrics in time_data.items():
                 parsed_key = int(time_key) if time_col in ('Week number (ISO)', 'Year') else time_key
@@ -129,14 +129,9 @@ def _build_df_for_spec(client, spec):
             "Graph spec is missing 'data_source'. "
             "Call fetch_trend_data for this slide and set data_source to the returned data_key."
         )
-    style = spec.get('style', 'trend')
-    if style == 'comparison':
-        comparison = spec.get('comparison', 'yoy')
-        df = build_comparison_df(client, data_source, comparison)
-    else:
-        x_dim = spec.get('dimensions', {}).get('x', '')
-        ct = 'timeseries' if x_dim in TIME_DIMENSIONS else 'mom'
-        df = build_dimension_df(client, data_source, ct)
+    x_dim = spec.get('dimensions', {}).get('x', '')
+    ct = 'timeseries' if x_dim in TIME_DIMENSIONS else 'mom'
+    df = build_dimension_df(client, data_source, ct)
     return _apply_monthly_filters(df, spec.get('filters', '{}'))
 
 
@@ -310,14 +305,8 @@ def render_bar_chart(graph, client):
     if not metrics:
         return None
 
-    # Comparison df (has Period column): dimension is x, Period is group_by
-    data_source = graph.get('data_source')
-    if 'Period' in df.columns and data_source:
-        x_col = data_source.split('::')[0]
-        group_by = 'Period'
-    else:
-        x_col = _resolve_x_col(graph, df, metrics)
-        group_by = graph.get('dimensions', {}).get('group_by')
+    x_col = _resolve_x_col(graph, df, metrics)
+    group_by = graph.get('dimensions', {}).get('group_by')
     use_group_by = bool(group_by and group_by in df.columns and group_by != x_col)
 
     for metric in metrics:
@@ -798,79 +787,70 @@ def render_comparison_line_chart(graph, client):
     # ── 1. EXTRACT THE SPEC ──────────────────────────────────────────
     title      = graph["title"]
     metrics    = graph["metrics"][:1]
-    comparison = graph.get("comparison", "mom")
+    comparison = graph.get("comparison", "yoy")
     data_source = graph.get("data_source")
 
-    # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
     if not data_source:
         raise ValueError(
             "Graph spec is missing 'data_source'. "
             "Call fetch_trend_data for this slide and set data_source to the returned data_key."
         )
-    df = build_dimension_df(client, data_source, 'timeseries')
-    time_col = client.get('dimension_data', {}).get(data_source, {}).get('time_dimension', 'Week number (ISO)')
 
-    df = _apply_monthly_filters(df, graph.get('filters', '{}'))
-    metrics = [m for m in metrics if m in df.columns]
-    if not metrics or time_col not in df.columns:
+    # ── 2. LOAD CURRENT AND COMPARISON TIMESERIES ────────────────────
+    dim_entry = client.get('dimension_data', {}).get(data_source, {})
+    time_col  = dim_entry.get('time_dimension', 'Week number (ISO)')
+
+    filters_str = graph.get('filters', '{}')
+    curr_df = _apply_monthly_filters(build_dimension_df(client, data_source, 'timeseries'), filters_str)
+    comp_ts_key = 'yoy_timeseries' if comparison == 'yoy' else 'mom_timeseries'
+    prev_df = _apply_monthly_filters(build_dimension_df(client, data_source, comp_ts_key), filters_str)
+
+    metrics = [m for m in metrics if m in curr_df.columns]
+    if not metrics or time_col not in curr_df.columns:
         return None
 
     metric = metrics[0]
-    df[metric] = pd.to_numeric(df[metric], errors='coerce')
-    df = df.groupby(time_col, as_index=False)[metric].sum()
-    df = df.sort_values(time_col).reset_index(drop=True)
+    for df in [curr_df, prev_df]:
+        if metric in df.columns:
+            df[metric] = pd.to_numeric(df[metric], errors='coerce')
 
-    # ── 3. SPLIT INTO CURRENT AND PREVIOUS PERIOD ────────────────────
-    def _ts(val):
-        return val if isinstance(val, pd.Timestamp) else pd.Timestamp(val)
+    # ── 3. AGGREGATE AND POSITIONALLY ALIGN ─────────────────────────
+    curr_agg = (curr_df.groupby(time_col, as_index=False)[metric].sum()
+                .sort_values(time_col).reset_index(drop=True))
 
-    start      = _ts(client['start_date'])
-    end        = _ts(client['end_date'])
-    comp_key   = 'yoy' if comparison == 'yoy' else 'mom'
-    prev_start = _ts(client[f'compare_start_{comp_key}'])
-    prev_end   = _ts(client[f'compare_end_{comp_key}'])
+    if not prev_df.empty and metric in prev_df.columns:
+        prev_agg = (prev_df.groupby(time_col, as_index=False)[metric].sum()
+                    .sort_values(time_col).reset_index(drop=True))
+    else:
+        prev_agg = pd.DataFrame(columns=[time_col, metric])
 
-    def _keys_in_range(s, e):
-        dates = pd.date_range(s, e, freq='D')
-        if time_col == 'Week number (ISO)':
-            return sorted(set(int(w) for w in dates.isocalendar().week))
-        elif time_col == 'Month':
-            return sorted(set(d.to_period('M').strftime('%Y-%m') for d in dates))
-        elif time_col == 'Year':
-            return sorted(set(d.year for d in dates))
-        else:
-            return sorted(set(d.strftime('%Y-%m-%d') for d in dates))
+    curr_agg['_pos'] = range(1, len(curr_agg) + 1)
+    prev_agg['_pos'] = range(1, len(prev_agg) + 1)
 
-    curr_keys = _keys_in_range(start, end)
-    prev_keys = _keys_in_range(prev_start, prev_end)
-
-    curr_df = df[df[time_col].isin(curr_keys)].sort_values(time_col).reset_index(drop=True)
-    prev_df = df[df[time_col].isin(prev_keys)].sort_values(time_col).reset_index(drop=True)
-    curr_df['_pos'] = range(1, len(curr_df) + 1)
-    prev_df['_pos'] = range(1, len(prev_df) + 1)
+    # x-axis labels come from the current period's actual time values
+    curr_labels = _format_x_labels(curr_agg[time_col].tolist(), time_col)
 
     # ── 4. CREATE THE FIGURE ─────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(10, 5))
 
     # ── 5. PLOT BOTH PERIOD LINES ────────────────────────────────────
-    if not curr_df.empty:
-        ax.plot(curr_df['_pos'], curr_df[metric], linewidth=2.5, marker='o', markersize=4,
+    if not curr_agg.empty:
+        ax.plot(curr_agg['_pos'], curr_agg[metric], linewidth=2.5, marker='o', markersize=4,
                 label='Current', color=BRAND["colours"][0])
-        ax.fill_between(curr_df['_pos'], curr_df[metric], alpha=0.1, color=BRAND["colours"][0])
+        ax.fill_between(curr_agg['_pos'], curr_agg[metric], alpha=0.1, color=BRAND["colours"][0])
 
-    if not prev_df.empty:
-        ax.plot(prev_df['_pos'], prev_df[metric], linewidth=2.5, marker='o', markersize=4,
-                label='Previous', color=BRAND["colours"][1], linestyle='--')
-        ax.fill_between(prev_df['_pos'], prev_df[metric], alpha=0.1, color=BRAND["colours"][1])
+    if not prev_agg.empty:
+        period_label = 'Previous Year' if comparison == 'yoy' else 'Previous Period'
+        ax.plot(prev_agg['_pos'], prev_agg[metric], linewidth=2.5, marker='o', markersize=4,
+                label=period_label, color=BRAND["colours"][1], linestyle='--')
+        ax.fill_between(prev_agg['_pos'], prev_agg[metric], alpha=0.1, color=BRAND["colours"][1])
 
     # ── 6. FORMATTING ────────────────────────────────────────────────
-    unit_label = 'Week' if time_col == 'Week number (ISO)' else ('Month' if time_col == 'Month' else 'Period')
-    max_pos = max(len(curr_df), len(prev_df), 1)
-    ax.set_xticks(range(1, max_pos + 1))
-    ax.set_xticklabels([f'{unit_label} {i}' for i in range(1, max_pos + 1)])
+    ax.set_xticks(range(1, len(curr_labels) + 1))
+    ax.set_xticklabels(curr_labels, rotation=45, ha='right')
 
     ax.set_title(title, fontsize=14, fontweight="bold", pad=12, color=BRAND["quaternary"])
-    ax.set_xlabel('Position in Period', fontsize=11)
+    ax.set_xlabel(_X_COL_LABELS.get(time_col, time_col), fontsize=11)
     ax.set_ylabel(metric, fontsize=11, color=BRAND["quaternary"])
     if metric in PCT_METRICS:
         ax.yaxis.set_major_formatter(_PCT_FMT)
