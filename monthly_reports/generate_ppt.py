@@ -410,75 +410,75 @@ def slide_scorecard_horizontal(prs, title, summary, bullets, kpis, date_label=No
 
 
 def slide_full_chart(prs, title, summary, chart_path, date_label=None):
-    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_BLANK])
-    _add_title_textbox(slide, title)
-    if date_label:
-        tb = slide.shapes.add_textbox(Inches(0.5), Inches(0.9), Inches(9), Inches(0.35))
-        tf = tb.text_frame
-        run = tf.paragraphs[0].add_run()
-        run.text = date_label
-        run.font.name = BRAND["font"]
-        run.font.size = Pt(9)
-        run.font.color.rgb = C["grey"]
-    # Chart fills the body — tall and wide
+    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_TITLE_AND_BODY])
+    slide.placeholders[0].text = title
+    try:
+        if date_label:
+            slide.placeholders[2].text = date_label
+    except (KeyError, IndexError):
+        pass
+    try:
+        _set_text(slide.placeholders[4].text_frame, summary)
+    except (KeyError, IndexError):
+        pass
     with Image.open(chart_path) as img:
         img_w, img_h = img.size
+    chart_top    = Inches(1.55)
     chart_width  = prs.slide_width - Inches(0.8)
     chart_height = int(chart_width * img_h / img_w)
-    chart_top    = Inches(1.25)
-    max_h        = prs.slide_height - chart_top - Inches(0.8)
+    max_h        = prs.slide_height - chart_top - Inches(0.2)
     if chart_height > max_h:
         chart_height = max_h
         chart_width  = int(chart_height * img_w / img_h)
     left = (prs.slide_width - chart_width) // 2
     slide.shapes.add_picture(chart_path, left=left, top=chart_top,
                              width=chart_width, height=chart_height)
-    # One-line callout at the bottom
-    if summary:
-        tb = slide.shapes.add_textbox(Inches(0.5), prs.slide_height - Inches(0.6),
-                                      prs.slide_width - Inches(1.0), Inches(0.5))
-        tf = tb.text_frame
-        tf.word_wrap = True
-        run = tf.paragraphs[0].add_run()
-        run.text = summary
-        run.font.name = BRAND["font"]
-        run.font.size = Pt(11)
-        run.font.color.rgb = C["dark"]
     return slide
 
 
-def slide_big_number(prs, title, summary, bullets, chart_path,
+def slide_big_number(prs, title, summary, chart_path,
                      hero_label, hero_curr, hero_prev, hero_pct, date_label=None):
-    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_BLANK])
-    _add_title_textbox(slide, title)
-    if date_label:
-        tb = slide.shapes.add_textbox(Inches(0.5), Inches(0.9), Inches(9), Inches(0.35))
-        tf = tb.text_frame
-        run = tf.paragraphs[0].add_run()
-        run.text = date_label
-        run.font.name = BRAND["font"]
-        run.font.size = Pt(9)
-        run.font.color.rgb = C["grey"]
+    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_TITLE_AND_BODY])
+    slide.placeholders[0].text = title
+    try:
+        if date_label:
+            slide.placeholders[2].text = date_label
+    except (KeyError, IndexError):
+        pass
+    try:
+        _set_text(slide.placeholders[4].text_frame, summary)
+    except (KeyError, IndexError):
+        pass
 
-    body_top = Inches(1.3)
-    body_h   = prs.slide_height - body_top - Inches(0.3)
+    box_top  = Inches(1.55)
+    box_h    = Inches(3.1)
+    box_w    = Inches(4.0)
 
-    # Left panel — big number
-    left_w = Inches(4.2)
-    tb = slide.shapes.add_textbox(Inches(0.5), body_top, left_w, body_h)
-    tf = tb.text_frame
+    shape = slide.shapes.add_shape(5, Inches(0.4), box_top, box_w, box_h)
+    shape.adjustments[0] = 0.08
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = C["dark"]
+    shape.line.fill.background()
+
+    tf = shape.text_frame
     tf.word_wrap = True
     tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tf.margin_top    = Inches(0.2)
+    tf.margin_bottom = Inches(0.2)
+    tf.margin_left   = Inches(0.2)
+    tf.margin_right  = Inches(0.2)
 
     p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
     run = p.add_run()
     run.text = hero_label
     run.font.name = BRAND["font"]
     run.font.size = Pt(13)
     run.font.bold = True
-    run.font.color.rgb = C["dark"]
+    run.font.color.rgb = C["white"]
 
     p2 = tf.add_paragraph()
+    p2.alignment = PP_ALIGN.CENTER
     run2 = p2.add_run()
     run2.text = hero_curr
     run2.font.name = BRAND["font"]
@@ -487,24 +487,15 @@ def slide_big_number(prs, title, summary, bullets, chart_path,
     run2.font.color.rgb = C["gold"]
 
     p3 = tf.add_paragraph()
+    p3.alignment = PP_ALIGN.CENTER
     run3 = p3.add_run()
     run3.text = f"vs {hero_prev}  ({hero_pct})"
     run3.font.name = BRAND["font"]
-    run3.font.size = Pt(12)
-    run3.font.color.rgb = C["dark"]
+    run3.font.size = Pt(11)
+    run3.font.color.rgb = C["white"]
 
-    if summary:
-        p4 = tf.add_paragraph()
-        p4.space_before = Pt(10)
-        run4 = p4.add_run()
-        run4.text = summary
-        run4.font.name = BRAND["font"]
-        run4.font.size = Pt(11)
-        run4.font.color.rgb = C["dark"]
-
-    # Right panel — supporting chart
     _add_chart_image(slide, chart_path,
-                     left=Inches(4.9), top=body_top, width=Inches(4.8))
+                     left=Inches(4.7), top=box_top, width=Inches(5.0))
     return slide
 
 
@@ -760,20 +751,20 @@ def slide_planning_gantt(prs, title, tasks):
 
 # ── TABLE DATA EXTRACTION ────────────────────────────────────────────────────
 
-def render_table_data(graph, client, max_rows=12):
+def render_table_data(graph, client, max_rows=12, comparison=True):
     """Convert dimension_data into (headers, rows) for slide_table / slide_table_commentary.
 
-    Reads the 'mom' comparison cut from dimension_data[data_source].
-    For each dimension value, shows current and previous values plus % change per metric.
-    Rows are sorted by first metric current value descending and capped at max_rows.
+    comparison=True  (graph_type 'table_comparison'): curr + prev + % change per metric.
+    comparison=False (graph_type 'table'):             current period values only.
+    Rows sorted by first metric current value descending, capped at max_rows.
     """
     data_source = graph.get('data_source')
     if not data_source:
         return [], []
 
-    dim_entry   = client.get('dimension_data', {}).get(data_source, {})
-    mom_data    = dim_entry.get('mom', {})
-    metrics     = graph.get('metrics', [])
+    dim_entry     = client.get('dimension_data', {}).get(data_source, {})
+    mom_data      = dim_entry.get('mom', {})
+    metrics       = graph.get('metrics', [])
     dimension_col = data_source.split('::')[0]
 
     if not mom_data or not metrics:
@@ -788,13 +779,15 @@ def render_table_data(graph, client, max_rows=12):
             vals = metric_dict.get(m, {})
             if isinstance(vals, dict):
                 row.append(vals.get('curr', '—'))
-                row.append(vals.get('prev', '—'))
-                row.append(vals.get('pct',  '—'))
+                if comparison:
+                    row.append(vals.get('prev', '—'))
+                    row.append(vals.get('pct',  '—'))
             else:
-                row.extend(['—', '—', '—'])
+                row.append('—')
+                if comparison:
+                    row.extend(['—', '—'])
         rows.append(row)
 
-    # Sort by first metric curr descending (raw numeric parse)
     def _sort_key(r):
         raw = r[1] if len(r) > 1 else '0'
         try:
@@ -807,7 +800,9 @@ def render_table_data(graph, client, max_rows=12):
 
     headers = [dimension_col]
     for m in metrics:
-        headers += [m, f"{m} (prev)", f"{m} (%)"]
+        headers.append(m)
+        if comparison:
+            headers += [f"{m} (prev)", f"{m} (%)"]
 
     return headers, rows
 
@@ -885,7 +880,8 @@ def _render_trend_slide(prs, client, trend):
     date_label = _resolve_date_label_for_graph(client, graph) if graph.get('data_source') else None
 
     if template in ('table', 'table_commentary'):
-        headers, rows = render_table_data(graph, client)
+        comparison = graph.get('graph_type') == 'table_comparison'
+        headers, rows = render_table_data(graph, client, comparison=comparison)
         if not headers:
             slide_commentary(prs, title, summary, bullets)
             return
@@ -906,7 +902,7 @@ def _render_trend_slide(prs, client, trend):
     elif template == 'big_number':
         if chart_path:
             hero_label, hero_curr, hero_prev, hero_pct = _extract_hero_metric(client, graph)
-            slide_big_number(prs, title, summary, bullets, chart_path,
+            slide_big_number(prs, title, summary, chart_path,
                              hero_label, hero_curr, hero_prev, hero_pct, date_label)
         else:
             slide_commentary(prs, title, summary, bullets)

@@ -417,7 +417,9 @@ All graph specs must conform exactly to this schema. The pipeline will fail at r
 
 `line`, `bar`, `stacked_bar`, `pie`, `line_bar_combo`, `horizontal_bar`, `scatter`, `comparison_bar`, `comparison_line`, `table`
 
-`table` — produces a tabular layout instead of a chart. Use with `table_commentary` or `table` templates. The renderer reads the `mom` comparison data from `dimension_data[data_source]` and builds rows with current, previous, and % change per metric. `style` should be `"distribution"` for table specs.
+`table` — current period values only. No comparison columns. Use when a simple ranked list is clearest. Use with `table` or `table_commentary` templates. `style` should be `"distribution"`.
+
+`table_comparison` — current + previous period + % change per metric. Default table type — use this when the comparison story matters. Use with `table` or `table_commentary` templates. `style` should be `"distribution"`.
 
 ### Valid dimensions.x
 
@@ -521,7 +523,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
 - `mtd_overview.template` / `mtd_overview.kpi_count`: same rules as `overview`.
 - `trends[].bullets`: 1–4 items per trend
 - `trends[].template`: one of the 7 valid slide templates. Defaults to `chart_commentary` if omitted.
-- `trends[].graph`: required on every trend — never `null`. For `table` and `table_commentary` templates, set `graph_type: "table"` and `style: "distribution"`.
+- `trends[].graph`: required on every trend — never `null`. For `table` and `table_commentary` templates, set `graph_type: "table_comparison"` (default) or `"table"` (current period only), and `style: "distribution"`.
 
 ---
 
