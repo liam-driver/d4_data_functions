@@ -78,7 +78,7 @@ def _legend_above(ax, handles, labels):
     ax.legend(
         handles, labels,
         loc='lower center',
-        bbox_to_anchor=(0.5, 1.0),
+        bbox_to_anchor=(0.5, 1.04),
         ncol=max(1, len(labels)),
         borderaxespad=0.3,
         facecolor=BRAND['background'],
