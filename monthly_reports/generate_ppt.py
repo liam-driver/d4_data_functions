@@ -283,6 +283,26 @@ def _extract_current_tasks(plan_json):
     return []
 
 
+def _extract_all_plan_tasks(plan_json):
+    if not plan_json:
+        return []
+
+    def _active(tasks):
+        return [t for t in tasks if t.get('category', '').strip().lower() == 'active workstream']
+
+    if isinstance(plan_json, list):
+        return _active(plan_json)
+    if 'tasks' in plan_json and 'plan_status' not in plan_json:
+        return _active(plan_json['tasks'])
+    all_tasks = []
+    for quarter_data in plan_json.values():
+        if isinstance(quarter_data, dict):
+            tasks = quarter_data.get('tasks', [])
+            if isinstance(tasks, list):
+                all_tasks.extend(tasks)
+    return _active(all_tasks)
+
+
 def _fmt_date(date_str):
     if not date_str:
         return ''
@@ -763,15 +783,16 @@ def render_table_data(graph, client, max_rows=12, comparison=True):
         return [], []
 
     dim_entry     = client.get('dimension_data', {}).get(data_source, {})
-    mom_data      = dim_entry.get('mom', {})
+    comp_key      = 'yoy' if graph.get('comparison') == 'yoy' else 'mom'
+    comp_data     = dim_entry.get(comp_key, {})
     metrics       = graph.get('metrics', [])
     dimension_col = data_source.split('::')[0]
 
-    if not mom_data or not metrics:
+    if not comp_data or not metrics:
         return [], []
 
     rows = []
-    for dim_val, metric_dict in mom_data.items():
+    for dim_val, metric_dict in comp_data.items():
         if not isinstance(metric_dict, dict):
             continue
         row = [str(dim_val)]
@@ -1033,7 +1054,7 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
 
     plan_json = client.get('plan_json')
     if plan_json:
-        tasks = _extract_current_tasks(plan_json)
+        tasks = _extract_all_plan_tasks(plan_json)
         if tasks:
             slide_planning_gantt(prs, '90 Day Plan', tasks)
 
