@@ -55,6 +55,13 @@ STATUS_COLOURS = {
     "Blocked":     C["orange"],
 }
 
+HEADER_TEXT_COLOUR = {
+    "Complete":    C["white"],
+    "In Progress": C["dark"],
+    "Scheduled":   C["dark"],
+    "Blocked":     C["white"],
+}
+
 
 # ── PRIVATE HELPERS ───────────────────────────────────────────────────────────
 
@@ -312,6 +319,17 @@ def _fmt_date(date_str):
         except ValueError:
             continue
     return date_str
+
+
+def _parse_date_for_sort(date_str):
+    if not date_str:
+        return datetime.max
+    for fmt in ('%d/%m/%y', '%d/%m/%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return datetime.max
 
 
 # ── PUBLIC SLIDE TEMPLATES ────────────────────────────────────────────────────
@@ -769,6 +787,124 @@ def slide_planning_gantt(prs, title, tasks):
     return slide
 
 
+KANBAN_COLUMNS = ['Blocked', 'Scheduled', 'Complete']
+KANBAN_HEADER_COLOUR = {
+    'Blocked':   C['gold'],
+    'Scheduled': C['orange'],
+    'Complete':  C['teal'],
+}
+KANBAN_HEADER_TEXT = {
+    'Blocked':   C['dark'],
+    'Scheduled': C['white'],
+    'Complete':  C['white'],
+}
+
+
+def slide_action_kanban(prs, title, tasks):
+    if not tasks:
+        return None
+
+    grouped = {s: [] for s in KANBAN_COLUMNS}
+    for task in tasks:
+        status = task.get('status', 'Scheduled')
+        # In Progress folds into Scheduled
+        bucket = status if status in grouped else 'Scheduled'
+        grouped[bucket].append(task)
+
+    for status in KANBAN_COLUMNS:
+        grouped[status].sort(key=lambda t: _parse_date_for_sort(t.get('end_date', '')))
+
+    active_cols = [s for s in KANBAN_COLUMNS if grouped[s]]
+    if not active_cols:
+        return None
+
+    n_cols     = len(active_cols)
+    margin_x   = Inches(0.4)
+    margin_top = Inches(1.1)
+    margin_bot = Inches(0.3)
+    col_gap    = Inches(0.2)
+    header_h   = Inches(0.4)
+    card_gap   = Inches(0.15)
+
+    col_w            = (prs.slide_width - 2 * margin_x - (n_cols - 1) * col_gap) // n_cols
+    available_card_h = prs.slide_height - margin_top - margin_bot - header_h - card_gap
+    max_tasks        = max(len(grouped[s]) for s in active_cols)
+    card_h           = min(Inches(1.1), max(Inches(0.7),
+                           (available_card_h - (max_tasks - 1) * card_gap) // max_tasks))
+
+    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_BLANK])
+    _add_title_textbox(slide, title)
+
+    for col_i, status in enumerate(active_cols):
+        col_x = margin_x + col_i * (col_w + col_gap)
+
+        # Rounded column header
+        hdr = slide.shapes.add_shape(5, int(col_x), int(margin_top), int(col_w), int(header_h))
+        hdr.adjustments[0] = 0.08
+        hdr.fill.solid()
+        hdr.fill.fore_color.rgb = KANBAN_HEADER_COLOUR[status]
+        hdr.line.fill.background()
+        tf = hdr.text_frame
+        tf.word_wrap = False
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        run = p.add_run()
+        run.text = status
+        run.font.name = BRAND["font"]
+        run.font.size = Pt(11)
+        run.font.bold = True
+        run.font.color.rgb = KANBAN_HEADER_TEXT[status]
+
+        for card_i, task in enumerate(grouped[status]):
+            card_y = margin_top + header_h + card_gap + card_i * (card_h + card_gap)
+
+            # Rounded dark card
+            card = slide.shapes.add_shape(5, int(col_x), int(card_y), int(col_w), int(card_h))
+            card.adjustments[0] = 0.08
+            card.fill.solid()
+            card.fill.fore_color.rgb = C["dark"]
+            card.line.fill.background()
+
+            pad = Inches(0.15)
+            tb = slide.shapes.add_textbox(
+                int(col_x + pad), int(card_y + pad),
+                int(col_w - 2 * pad), int(card_h - 2 * pad)
+            )
+            tf = tb.text_frame
+            tf.word_wrap = True
+
+            platform = task.get('platform', '')
+            p0 = tf.paragraphs[0]
+            if platform:
+                run0 = p0.add_run()
+                run0.text = platform
+                run0.font.name = BRAND["font"]
+                run0.font.size = Pt(7)
+                run0.font.bold = True
+                run0.font.color.rgb = C["gold"]
+
+            p1 = tf.add_paragraph()
+            run1 = p1.add_run()
+            run1.text = task.get('name', '')
+            run1.font.name = BRAND["font"]
+            run1.font.size = Pt(9)
+            run1.font.bold = True
+            run1.font.color.rgb = C["white"]
+
+            end_date = _fmt_date(task.get('end_date', ''))
+            if end_date:
+                date_label = 'Completed' if status == 'Complete' else 'Due'
+                p2 = tf.add_paragraph()
+                run2 = p2.add_run()
+                run2.text = f'{date_label}: {end_date}'
+                run2.font.name = BRAND["font"]
+                run2.font.size = Pt(7)
+                run2.font.color.rgb = C["grey"]
+
+    return slide
+
+
 # ── TABLE DATA EXTRACTION ────────────────────────────────────────────────────
 
 def render_table_data(graph, client, max_rows=12, comparison=True):
@@ -1046,17 +1182,13 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
         _render_trend_slide(prs, client, trend)
 
     slide_section_separator(prs, 'Plan Overview', variant='gold')
-    action_bullets = [
-        f"{action['task']}: {action['summary']} - {action['status']}"
-        for action in sc['actions']
-    ]
-    slide_commentary(prs, 'Plan Overview', '', action_bullets)
-
     plan_json = client.get('plan_json')
-    if plan_json:
-        tasks = _extract_all_plan_tasks(plan_json)
-        if tasks:
-            slide_planning_gantt(prs, '90 Day Plan', tasks)
+    current_tasks = _extract_current_tasks(plan_json) if plan_json else []
+    if current_tasks:
+        slide_action_kanban(prs, 'Plan Overview', current_tasks)
+    all_tasks = _extract_all_plan_tasks(plan_json) if plan_json else []
+    if all_tasks:
+        slide_planning_gantt(prs, '90 Day Plan', all_tasks)
 
     prs.save(output_path)
     print(f"Saved {output_path} with {len(prs.slides)} slide(s)")
