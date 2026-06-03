@@ -301,13 +301,11 @@ def _extract_all_plan_tasks(plan_json):
         return _active(plan_json)
     if 'tasks' in plan_json and 'plan_status' not in plan_json:
         return _active(plan_json['tasks'])
-    all_tasks = []
     for quarter_data in plan_json.values():
-        if isinstance(quarter_data, dict):
+        if isinstance(quarter_data, dict) and quarter_data.get('plan_status') == 'current':
             tasks = quarter_data.get('tasks', [])
-            if isinstance(tasks, list):
-                all_tasks.extend(tasks)
-    return _active(all_tasks)
+            return _active(tasks) if isinstance(tasks, list) else []
+    return []
 
 
 def _fmt_date(date_str):
