@@ -407,21 +407,31 @@ def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     _validate_client_name(client_name)
     from monthly_reports.generate_ppt import generate_ppt
     content = json.loads(slide_content)
-    output_path = generate_ppt(client_name, slide_content=content)
+    output_path, excel_path = generate_ppt(client_name, slide_content=content)
     filename = os.path.basename(output_path)
     download_url = f"{ISSUER_URL}/files/{filename}"
 
     # Clean up generated files older than 7 days to avoid unbounded storage growth.
     slides_dir = os.path.join(PROJECT_ROOT, "slides")
     cutoff = time.time() - 7 * 86400
-    for old_file in _glob.glob(os.path.join(slides_dir, f"{client_name}_monthly_*.pptx")):
-        if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) != os.path.abspath(output_path):
-            try:
-                os.remove(old_file)
-            except OSError:
-                pass
+    for pattern in (f"{client_name}_monthly_*.pptx", f"{client_name}_monthly_*_data.xlsx"):
+        for old_file in _glob.glob(os.path.join(slides_dir, pattern)):
+            if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) not in (
+                os.path.abspath(output_path),
+                os.path.abspath(excel_path) if excel_path else "",
+            ):
+                try:
+                    os.remove(old_file)
+                except OSError:
+                    pass
 
-    return json.dumps({"path": output_path, "download_url": download_url}, ensure_ascii=False)
+    result = {"path": output_path, "download_url": download_url}
+    if excel_path:
+        excel_filename = os.path.basename(excel_path)
+        result["excel_path"] = excel_path
+        result["excel_download_url"] = f"{ISSUER_URL}/files/{excel_filename}"
+
+    return json.dumps(result, ensure_ascii=False)
 
 
 if __name__ == "__main__":

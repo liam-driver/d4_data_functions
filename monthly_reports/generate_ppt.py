@@ -18,6 +18,7 @@ from pptx.oxml.ns import qn
 from PIL import Image
 from core.generate_commentary import generate_monthly_slide_content, generate_mtd_slide_content
 from monthly_reports.generate_visualisation import render_graph, initialise_brand, BRAND
+from monthly_reports.generate_data_export import export_slide_data
 
 initialise_brand()
 
@@ -1190,7 +1191,12 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
 
     prs.save(output_path)
     print(f"Saved {output_path} with {len(prs.slides)} slide(s)")
-    return output_path
+
+    excel_path = export_slide_data(client, sc, output_path)
+    if excel_path:
+        print(f"Saved data export to {excel_path}")
+
+    return output_path, excel_path
 
 
 if __name__ == "__main__":
