@@ -12,6 +12,7 @@ from monthly_reports.generate_visualisation import (
 _COMPARISON_GRAPH_TYPES = ('comparison_bar', 'comparison_line')
 
 _MAX_TAB_LEN = 31
+_INVALID_SHEET_CHARS = str.maketrans('', '', '\\/?*[]:')
 
 
 def _build_export_df(client, graph):
@@ -64,7 +65,7 @@ def export_slide_data(client, slide_content, pptx_path):
             continue
 
         title = trend.get('title', f'Slide {i + 1}')
-        tab_name = f"{i + 1}. {title}"[:_MAX_TAB_LEN]
+        tab_name = f"{i + 1}. {title}".translate(_INVALID_SHEET_CHARS)[:_MAX_TAB_LEN]
         sheets[tab_name] = df
 
     if not sheets:
