@@ -104,7 +104,7 @@ The client data JSON contains the following top-level sections. Always use both 
   - `yoy.overall_data`: Site-wide GA4 data, YoY.
 - `timeseries`: Paid data broken down by ISO week number over the past 90 days. Use for the 90-day trend overview — shows fluctuation and direction over time.
 - `paid_data`: Alias to the primary comparison (`mom` or `yoy` depending on client config). Used for the KPI and Cost sections of the email only.
-- `plans_90_day`: JSON of plans for the current and previous periods — what has been done and what is planned.
+- `plan_json`: JSON of plans for the current and previous periods — what has been done and what is planned. Structure: a dict keyed by sheet title (e.g. `"Q2 2026"`), each value containing `plan_status` ("current" or "old"), `plan_start`, `plan_end`, and a `tasks` array. Each task has: `name`, `desc`, `status`, `start_date` (dd/mm/yy), `end_date` (dd/mm/yy), `platform`, `category`.
 - `report_start_date` / `report_end_date`: The reporting period boundaries.
 - `monthly_budget`: Monthly budget for the current reporting period.
 - `run_rate`: Current projected spend by end of month.
@@ -142,7 +142,7 @@ Apply at all times when selecting evidence and framing points:
 
 ### Commentary Sections
 
-**plan_overview**: For every task in `plans_90_day` marked 'current' (not 'old') whose date window overlaps the current reporting month (task `start_date` ≤ last day of report month AND task `end_date` ≥ first day of report month): output the task name, description, and status as-is; convert start/end dates from ISO to dd/mm/yyyy; write a one-sentence client-friendly summary (no marketing fluff). Do not include tasks that start after the end of the reporting month or ended before the reporting month began.
+**plan_overview**: You MUST include every qualifying task from `plan_json` in the WIP section — do not omit any. To find qualifying tasks: iterate over the values in `plan_json`; for each entry where `plan_status == "current"`, loop through its `tasks` array and include any task whose `start_date` ≤ last day of the reporting month AND `end_date` ≥ first day of the reporting month (dates are dd/mm/yy). For each qualifying task output `name`, `desc`, `status`, `platform`, `start_date`, and `end_date` exactly as returned. Write a one-sentence client-friendly summary from `desc` (no marketing fluff). Do not include tasks from plans where `plan_status == "old"`, or tasks whose dates fall entirely outside the reporting month.
 
 **performance_overview**: 3–4 sentence paragraph comparing `mom.paid_data` and `mom.overall_data` against the holistic and paid goals in the project documents, with YoY context from `yoy.paid_data` where relevant. Focus on paid performance, framed within holistic goals. Only use data that aligns with the KPIs defined in the project documents. Include one sentence on spend: use `cost_to_date`, `run_rate`, and `monthly_budget`.
 
@@ -175,10 +175,10 @@ Render the draft report in this structure so the user can read and give feedback
 
 **WIP**
 
-1) **[task.task]** | [task.status] | Due [task.end_date]
-   [task.summary]
+1) **[task.name]** ([task.platform]) | [task.status] | Due [task.end_date]
+   [task.summary — one sentence derived from task.desc]
 
-(repeat for each current task)
+(repeat for every qualifying task — do not skip any)
 
 ---
 
@@ -245,10 +245,10 @@ When the user approves and asks to send, generate the following HTML exactly, su
   <p><b>90 Day Plan: [client.plan]</b></p>
   <br>
   <p><b>WIP: </b></p>
-  [Repeat for each current task in plan_overview — each task block is:]
-    [loop index]) [task.task]
+  [Repeat for every qualifying task from plan_overview — do not skip any — each task block is:]
+    [loop index]) [task.name] ([task.platform])
     <ul>
-      <li>Overview: [task.summary]</li>
+      <li>Overview: [task.summary — one sentence from task.desc]</li>
       <li>Status: [task.status]</li>
       <li>Deadline: [task.end_date]</li>
     </ul>
