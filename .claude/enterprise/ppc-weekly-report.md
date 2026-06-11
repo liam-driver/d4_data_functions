@@ -49,8 +49,8 @@ Respond to user feedback by updating the relevant sections and re-rendering the 
 
 Once the user confirms the content:
 1. Produce a shortened version applying these rules:
-   - `performance_overview`: max 2 sentences
-   - `ninety_day_overview`: max 2 sentences
+   - `performance_overview`: max 3 sentences
+   - `ninety_day_overview`: max 3 sentences
    - Each `performance_points` summary: max 2 sentences
    - All other sections unchanged
 2. Present the shortened markdown preview and ask: **"Happy with this? Say 'send it' to email the report."**
@@ -142,6 +142,8 @@ Apply at all times when selecting evidence and framing points:
 
 ### Commentary Sections
 
+**Platform label rule**: When rendering `task.platform`, display `Meta Ads (Facebook / Instagram)` as `Facebook Ads`. All other platform labels are used as-is.
+
 **plan_overview**: You MUST include every qualifying task from `plan_json` in the WIP section — do not omit any. To find qualifying tasks: iterate over the values in `plan_json`; for each entry where `plan_status == "current"`, loop through its `tasks` array and include any task whose `start_date` ≤ last day of the reporting month AND `end_date` ≥ first day of the reporting month (dates are dd/mm/yy). For each qualifying task output `name`, `desc`, `status`, `platform`, `start_date`, and `end_date` exactly as returned. Write a one-sentence client-friendly summary from `desc` (no marketing fluff). Do not include tasks from plans where `plan_status == "old"`, or tasks whose dates fall entirely outside the reporting month.
 
 **performance_overview**: 3–4 sentence paragraph comparing `mom.paid_data` and `mom.overall_data` against the holistic and paid goals in the project documents, with YoY context from `yoy.paid_data` where relevant. Focus on paid performance, framed within holistic goals. Only use data that aligns with the KPIs defined in the project documents. Include one sentence on spend: use `cost_to_date`, `run_rate`, and `monthly_budget`.
@@ -175,7 +177,7 @@ Render the draft report in this structure so the user can read and give feedback
 
 **WIP**
 
-1) **[task.name]** ([task.platform]) | [task.status] | Due [task.end_date]
+1) **[task.platform]: [task.name]** | [task.status] | Due [task.end_date]
    [task.summary — one sentence derived from task.desc]
 
 (repeat for every qualifying task — do not skip any)
@@ -246,7 +248,7 @@ When the user approves and asks to send, generate the following HTML exactly, su
   <br>
   <p><b>WIP: </b></p>
   [Repeat for every qualifying task from plan_overview — do not skip any — each task block is:]
-    [loop index]) [task.name] ([task.platform])
+    [loop index]) [task.platform]: [task.name]
     <ul>
       <li>Overview: [task.summary — one sentence from task.desc]</li>
       <li>Status: [task.status]</li>
