@@ -33,6 +33,8 @@ def check_budget_pacing(client, df):
     df = apply_filters(df.copy(), client, ['Week number (ISO)', 'Ad Platform'], date_range)
     spend = pd.to_numeric(df.iloc[:,11], errors='coerce').sum()
     budget = float(budget_str.replace(',', ''))
+    if budget == 0:
+        return 'skip', 'Budget is zero — department paused'
     run_rate = tat_get_run_rate(client, spend)
     pacing_pct = run_rate / budget
     detail = f"Spend to date £{spend:,.0f}. Tracking at £{run_rate:,.0f} vs £{budget:,.0f} expected ({pacing_pct:.0%} of pace)"
