@@ -51,6 +51,14 @@ C = {
     "grey":   RGBColor(0xD9, 0xD9, 0xD9),
 }
 
+_PLATFORM_ALIASES = {
+    'Meta Ads (Facebook/Instagram)': 'Facebook Ads',
+    'Meta Ads (Facebook / Instagram)': 'Facebook Ads',
+}
+
+def _normalise_platform(platform: str) -> str:
+    return _PLATFORM_ALIASES.get(platform, platform)
+
 STATUS_COLOURS = {
     "Complete":    C["teal"],
     "In Progress": C["gold"],
@@ -630,10 +638,20 @@ def slide_scorecard(prs, title, kpis):
     return slide
 
 
-def slide_table(prs, title, headers, rows, status_col=None, totals_row=None):
-    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_BLANK])
-    _add_title_textbox(slide, title)
-    table_top = Inches(1.2)
+def slide_table(prs, title, headers, rows, summary=None, date_label=None, status_col=None, totals_row=None):
+    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_TITLE_AND_BODY])
+    slide.placeholders[0].text = title
+    try:
+        if date_label:
+            slide.placeholders[2].text = date_label
+    except (KeyError, IndexError):
+        pass
+    try:
+        if summary:
+            _set_text(slide.placeholders[4].text_frame, summary)
+    except (KeyError, IndexError):
+        pass
+    table_top = Inches(1.3)
     table_h = prs.slide_height - table_top - Inches(0.2)
     _add_table_shape(slide, headers, rows,
                      left=Inches(0.5), top=table_top,
@@ -642,29 +660,32 @@ def slide_table(prs, title, headers, rows, status_col=None, totals_row=None):
     return slide
 
 
-def slide_table_commentary(prs, title, headers, rows, bullets, status_col=None, totals_row=None):
-    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_BLANK])
-    _add_title_textbox(slide, title)
-
-    table_top = Inches(1.2)
-    content_h = prs.slide_height - table_top - Inches(0.2)
-
-    tb = slide.shapes.add_textbox(Inches(0.5), table_top, Inches(4.0), content_h)
-    tf = tb.text_frame
-    tf.word_wrap = True
-    for i, bullet in enumerate(bullets):
-        text = bullet['point'] if isinstance(bullet, dict) else bullet
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.text = text
-        p.level = 0
-        _shrink_bullet(p)
-        for run in p.runs:
-            run.font.size = Pt(11)
-            run.font.name = BRAND["font"]
-            run.font.color.rgb = C["dark"]
-
+def slide_table_commentary(prs, title, headers, rows, bullets, summary=None, date_label=None, status_col=None, totals_row=None):
+    slide = prs.slides.add_slide(prs.slide_layouts[SLD_LAYOUT_TITLE_AND_BODY])
+    slide.placeholders[0].text = title
+    try:
+        if date_label:
+            slide.placeholders[2].text = date_label
+    except (KeyError, IndexError):
+        pass
+    try:
+        if summary:
+            _set_text(slide.placeholders[4].text_frame, summary)
+    except (KeyError, IndexError):
+        pass
+    content_top = Inches(1.3)
+    content_h = prs.slide_height - content_top - Inches(0.2)
+    try:
+        ph = slide.placeholders[1]
+        ph.left   = Inches(0.5)
+        ph.top    = content_top
+        ph.width  = Inches(4.0)
+        ph.height = content_h
+        _populate_bullets(ph.text_frame, bullets)
+    except (KeyError, IndexError):
+        pass
     _add_table_shape(slide, headers, rows,
-                     left=Inches(4.7), top=table_top,
+                     left=Inches(4.7), top=content_top,
                      width=prs.slide_width - Inches(5.0), height=content_h,
                      status_col=status_col, totals_row=totals_row)
     return slide
@@ -683,7 +704,7 @@ def slide_planning_gantt(prs, title, tasks, plan_start_str=None, plan_end_str=No
             end   = datetime.strptime(end_str,   '%d/%m/%Y')
         except ValueError:
             continue
-        platform = t.get('platform', '')
+        platform = _normalise_platform(t.get('platform', ''))
         name     = t.get('name', '')
         label    = f"{platform}: {name}" if platform and name else platform or name
         parsed.append({'label': label, 'start': start, 'end': end,
@@ -919,7 +940,7 @@ def slide_action_kanban(prs, title, tasks):
             tf = tb.text_frame
             tf.word_wrap = True
 
-            platform = task.get('platform', '')
+            platform = _normalise_platform(task.get('platform', ''))
             p0 = tf.paragraphs[0]
             if platform:
                 run0 = p0.add_run()
@@ -1218,9 +1239,11 @@ def _render_trend_slide(prs, client, trend):
             slide_commentary(prs, title, summary, bullets)
             return
         if template == 'table_commentary':
-            slide_table_commentary(prs, title, headers, rows, bullets, totals_row=totals_row)
+            slide_table_commentary(prs, title, headers, rows, bullets,
+                                   summary=summary, date_label=date_label, totals_row=totals_row)
         else:
-            slide_table(prs, title, headers, rows, totals_row=totals_row)
+            slide_table(prs, title, headers, rows,
+                        summary=summary, date_label=date_label, totals_row=totals_row)
         return
 
     chart_path = render_graph(client, graph) if graph.get('data_source') else None

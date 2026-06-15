@@ -282,10 +282,11 @@ Apply at all times when selecting evidence and framing points:
 
 ### Style Requirements
 
+- **No em dashes, anywhere.** Em dashes are prohibited in all commentary — summaries, bullets, and action text. Do not use an em dash as a pause, connector, or aside. Use a comma, a conjunction, or start a new sentence instead.
 - **Overview summary**: 15 words maximum. Hard limit — count the words. Lead with direction, aligned to the client's primary KPI. One supporting data point only if it adds something a direction word cannot.
-- **Overview bullets**: 3–6 bullet points covering the most important performance movements. Each bullet carries one idea — if it needs two clauses, write two bullets. Reference a specific channel. Include a data point only if it makes the bullet stronger, not by default. Maximum one data point per bullet.
+- **Overview bullets**: 3–6 bullet points covering the most important performance movements. Each bullet carries one idea. If it needs two clauses, write two bullets. Reference a specific channel. Include a data point only if it makes the bullet stronger, not by default. Maximum one data point per bullet.
 - **Trend summaries**: 15 words maximum. Hard limit — count the words before writing. Lead with direction, one supporting data point only if it adds something a direction word cannot.
-- **Trend bullets**: 1–4 supporting points. Each bullet carries one idea. If a point needs two clauses, write two bullets. No em dashes. Do not chain observations with 'while', 'however', 'but', or 'suggesting that'. Include a data point only if it genuinely makes the bullet stronger. Maximum one data point per bullet.
+- **Trend bullets**: 1–4 supporting points. Each bullet carries one idea. If a point needs two clauses, write two bullets. Do not chain observations with 'while', 'however', 'but', or 'suggesting that'. Include a data point only if it genuinely makes the bullet stronger. Maximum one data point per bullet.
 - **Action summaries**: one client-friendly sentence (≤15 words) per task. No marketing fluff.
 - Use 'previous month' or 'previous year' — not specific dates — for period references.
 - Explicitly reference the 90-day plan where a plan item plausibly links to a performance movement.
