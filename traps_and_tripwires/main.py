@@ -153,14 +153,22 @@ def save_last_run(data):
 
 
 def delete_slack_message(token, channel, ts):
-    resp = requests.post(
-        "https://slack.com/api/chat.delete",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"channel": channel, "ts": ts},
-    )
-    data = resp.json()
-    if not data.get("ok"):
+    import time
+    for _ in range(3):
+        resp = requests.post(
+            "https://slack.com/api/chat.delete",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"channel": channel, "ts": ts},
+        )
+        data = resp.json()
+        if data.get("ok"):
+            return
+        if data.get("error") == "ratelimited":
+            retry_after = int(resp.headers.get("Retry-After", 2))
+            time.sleep(retry_after)
+            continue
         log_error(f"Slack delete error: {data.get('error')} (channel={channel}, ts={ts})")
+        return
 
 
 def delete_previous_run(token, last_run):

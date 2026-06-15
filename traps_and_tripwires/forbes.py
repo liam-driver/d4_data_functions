@@ -4,7 +4,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import gspread
 import pandas as pd
-from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 from core.get_run_rate import tat_get_run_rate
 
@@ -39,17 +38,14 @@ def load_forbes_department_budgets():
     ws = sh.worksheet('Traps & Tripwires Budgets')
     rows = ws.get_all_values()
 
-    budget_col_name = f"{datetime.today().strftime('%b')} BUDGET"
-
     client_col = budget_col = header_row_idx = None
     for i, row in enumerate(rows):
         stripped = [c.strip() for c in row]
-        if budget_col_name in stripped:
-            budget_col = stripped.index(budget_col_name)
-            client_col = next(
-                (j for j, c in enumerate(stripped) if c in ('Client', 'Client ')),
-                next((j for j, c in enumerate(stripped) if c), 0),
-            )
+        budget_match = next((j for j, c in enumerate(stripped) if 'budget' in c.lower()), None)
+        client_match = next((j for j, c in enumerate(stripped) if c.lower() == 'client'), None)
+        if budget_match is not None and client_match is not None:
+            budget_col = budget_match
+            client_col = client_match
             header_row_idx = i
             break
 
@@ -131,12 +127,13 @@ def check_department_budget_pacing(client, df, dept_name, dept_budget):
 
 
 def run_forbes_department_checks(client, df, dept_budgets):
-    """Returns list of (dept_name, (status, detail)) for all departments in funnel data."""
+    """Returns list of (dept_name, (status, detail)) for departments with an active budget (> 0)."""
     results = []
-    for dept in get_forbes_raw_departments(df):
-        budget = dept_budgets.get(dept)
-        result = check_department_budget_pacing(client, df, dept, budget)
-        results.append((dept, result))
+    for dept_name, budget in dept_budgets.items():
+        if budget <= 0:
+            continue
+        result = check_department_budget_pacing(client, df, dept_name, budget)
+        results.append((dept_name, result))
     return results
 
 
