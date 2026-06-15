@@ -86,6 +86,56 @@ def _legend_above(ax, handles, labels):
         fontsize=9,
     )
 
+def _apply_row_filters_df(df, row_filters, dimension_col):
+    """Post-aggregation filter: removes dimension values that fail any row_filter.
+
+    For metric filters, evaluates the total across all rows for that dimension value
+    (sum across the time window for timeseries data; Current-period sum for comparison data).
+    For dimension filters, matches against the dimension value string.
+    """
+    if not row_filters or dimension_col not in df.columns:
+        return df
+
+    valid_dims = []
+    for dim_val in df[dimension_col].unique():
+        dim_df = df[df[dimension_col] == dim_val]
+        curr_df = dim_df[dim_df['Period'] == 'Current'] if 'Period' in df.columns else dim_df
+
+        passes = True
+        for f in row_filters:
+            col = f.get('column', '')
+            op  = f.get('op', '=')
+            val = f.get('value')
+
+            if col == dimension_col:
+                s  = str(dim_val)
+                sv = str(val)
+                if   op == 'contains'     and sv.lower() not in s.lower(): passes = False
+                elif op == 'not_contains' and sv.lower() in  s.lower():    passes = False
+                elif op == '='            and s != sv:                      passes = False
+                elif op == '!='           and s == sv:                      passes = False
+            elif col in curr_df.columns:
+                total = pd.to_numeric(curr_df[col], errors='coerce').sum()
+                try:
+                    fv = float(val)
+                    if   op == '>'  and not (total >  fv): passes = False
+                    elif op == '<'  and not (total <  fv): passes = False
+                    elif op == '>=' and not (total >= fv): passes = False
+                    elif op == '<=' and not (total <= fv): passes = False
+                    elif op == '='  and not (total == fv): passes = False
+                    elif op == '!=' and not (total != fv): passes = False
+                except (ValueError, TypeError):
+                    passes = False
+
+            if not passes:
+                break
+
+        if passes:
+            valid_dims.append(dim_val)
+
+    return df[df[dimension_col].isin(valid_dims)]
+
+
 def _drop_null_paid_dims(df, dimension_col=None):
     for col in ('Ad Channel', 'Ad Platform'):
         if col in df.columns:
@@ -300,6 +350,10 @@ def render_line_chart(graph, client):
     group_by = graph.get('dimensions', {}).get('group_by')
     use_group_by = bool(group_by and group_by in df.columns and group_by != x_col)
 
+    row_filters = graph.get('row_filters', [])
+    if row_filters and use_group_by:
+        df = _apply_row_filters_df(df, row_filters, group_by)
+
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
 
@@ -400,6 +454,10 @@ def render_bar_chart(graph, client):
     group_by = graph.get('dimensions', {}).get('group_by')
     use_group_by = bool(group_by and group_by in df.columns and group_by != x_col)
 
+    row_filters = graph.get('row_filters', [])
+    if row_filters and use_group_by:
+        df = _apply_row_filters_df(df, row_filters, group_by)
+
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
 
@@ -477,6 +535,10 @@ def render_stacked_bar_chart(graph, client):
     x_col    = _resolve_x_col(graph, df, metrics_present)
     group_by = graph.get('dimensions', {}).get('group_by')
     use_group_by = bool(group_by and group_by in df.columns and group_by != x_col)
+
+    row_filters = graph.get('row_filters', [])
+    if row_filters and use_group_by:
+        df = _apply_row_filters_df(df, row_filters, group_by)
 
     for m in metrics_present:
         df[m] = pd.to_numeric(df[m], errors='coerce')
@@ -836,6 +898,9 @@ def render_comparison_bar_chart(graph, client):
 
     # ── 2. CONFIGURE THE DATAFRAME ───────────────────────────────────
     df = build_comparison_df(client, data_source, comparison)
+    row_filters = graph.get('row_filters', [])
+    if row_filters:
+        df = _apply_row_filters_df(df, row_filters, x_col)
     metrics = [m for m in metrics if m in df.columns]
     if not metrics or x_col not in df.columns:
         return None

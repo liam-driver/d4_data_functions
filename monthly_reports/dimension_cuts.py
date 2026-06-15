@@ -90,7 +90,15 @@ def _resolve_date_windows(date_range: str) -> dict:
 
 
 def _build_data_key(dimension, filters, date_range=None):
-    parts = [f"{col}={val}" for col, val in sorted(filters.items())] if filters else []
+    """filters: list of {column, op, value} dicts."""
+    parts = []
+    if filters:
+        for f in sorted(filters, key=lambda x: x.get('column', '')):
+            col = f.get('column', '')
+            op  = f.get('op', '=')
+            val = f.get('value')
+            val_str = ','.join(str(v) for v in val) if isinstance(val, list) else str(val)
+            parts.append(f"{col}[{op}]={val_str}")
     if date_range:
         parts.append(f"date_range={date_range}")
     if not parts:
@@ -99,16 +107,69 @@ def _build_data_key(dimension, filters, date_range=None):
 
 
 def _apply_scope_filters(df, filters):
+    """filters: list of {column, op, value} dicts. Applies pre-aggregation row-level filtering."""
     if not filters:
         return df
-    for col, val in filters.items():
+    for f in filters:
+        col = f.get('column', '')
+        op  = f.get('op', '=')
+        val = f.get('value')
         if col not in df.columns:
             continue
-        if isinstance(val, list):
-            df = df[df[col].isin(val)]
+        if op == '=':
+            if isinstance(val, list):
+                df = df[df[col].isin(val)]
+            else:
+                df = df[df[col].astype(str) == str(val)]
+        elif op == '!=':
+            if isinstance(val, list):
+                df = df[~df[col].isin(val)]
+            else:
+                df = df[df[col].astype(str) != str(val)]
+        elif op == 'contains':
+            df = df[df[col].astype(str).str.contains(str(val), case=False, na=False)]
+        elif op == 'not_contains':
+            df = df[~df[col].astype(str).str.contains(str(val), case=False, na=False)]
         else:
-            df = df[df[col] == val]
+            numeric_col = pd.to_numeric(df[col], errors='coerce')
+            try:
+                fv = float(val)
+                if   op == '>':  df = df[numeric_col >  fv]
+                elif op == '<':  df = df[numeric_col <  fv]
+                elif op == '>=': df = df[numeric_col >= fv]
+                elif op == '<=': df = df[numeric_col <= fv]
+            except (ValueError, TypeError):
+                pass
     return df
+
+
+def list_dimension_values(client_name, column, filters=None):
+    """Return sorted unique values for column in the raw client data, optionally pre-filtered.
+
+    filters: list of {column, op, value} dicts (same schema as fetch_trend_data filters).
+    Lets the LLM discover real dimension values before constructing a scope filter.
+    """
+    data_path = os.path.join(PROJECT_ROOT, 'storage', f'{client_name}_monthly_data.json')
+    with open(data_path, 'r', encoding='utf-8') as f:
+        client = json.load(f)
+
+    df = initialise_df(client)
+
+    if column not in df.columns:
+        raise ValueError(
+            f"Column '{column}' not found in data. "
+            f"Available columns: {sorted(df.columns.tolist())}"
+        )
+
+    if filters:
+        df = _apply_scope_filters(df, filters)
+
+    _NULL = {'', 'nan', 'None', 'NaN', 'null', '(not set)'}
+    values = sorted(
+        v for v in df[column].dropna().astype(str).unique()
+        if v not in _NULL
+    )
+    return values
 
 
 _ADDITIVE_METRIC_CANDIDATES = [
@@ -308,14 +369,16 @@ def get_dimension_timeseries(client, dimension_column, filters=None, time_dimens
     return result
 
 
-def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platform=None, platform_filter=None, time_dimension=None, date_range='mtd'):
+def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, date_range='mtd'):
     """
-    Fetches Previous Period, Previous Year, and timeseries data for a Trend Topic scoped by
-    channel/platform, broken down by dimension. Persists to dimension_data[data_key] in the
-    cached monthly JSON.
+    Fetches Previous Period, Previous Year, and timeseries data for a Trend Topic broken down
+    by dimension, with optional pre-aggregation scope filters. Persists to dimension_data[data_key]
+    in the cached monthly JSON.
 
+    filters: list of {column, op, value} dicts applied to raw rows before grouping. Any column
+             from the raw data is supported. Operators: =, !=, contains, not_contains, >, <, >=, <=.
+             Value can be a string, number, or list (for = and !=).
     date_range: one of 'previous_7_days', 'mtd', 'ytd', 'last_90_days' (default 'mtd').
-                Controls the current period window, comparison windows, and default time_dimension.
     time_dimension: column to group the timeseries by ('Week number (ISO)', 'Month', 'Year', 'Date').
                     Defaults to the recommended dimension for the selected date_range if omitted.
     Returns the full envelope dict.
@@ -330,20 +393,6 @@ def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platf
     # Override client date window with the resolved range
     client['start_date'] = windows['current_start']
     client['end_date']   = windows['current_end']
-
-    # Build scope filters from channel / platform params
-    filters = {}
-    if channel_filter and channel_filter.get('type') == 'include':
-        filters['Ad Channel'] = channel_filter['channels']
-    elif channel:
-        filters['Ad Channel'] = channel
-
-    if platform_filter and platform_filter.get('type') == 'include':
-        filters['Ad Platform'] = platform_filter['platforms']
-    elif platform:
-        filters['Ad Platform'] = platform
-
-    filters = filters or None
 
     # Previous Period (omitted for YTD)
     if windows['prev_period_available']:
@@ -413,9 +462,8 @@ def fetch_trend_data(client_name, channel, dimension, channel_filter=None, platf
         json.dump(client, f, ensure_ascii=False, indent=2, cls=TimestampEncoder)
 
     return {
-        'channel':               channel,
-        'platform':              platform,
         'dimension':             dimension,
+        'filters':               filters or [],
         'date_range':            date_range,
         'date_range_label':      windows['label'],
         'data_key':              data_key,

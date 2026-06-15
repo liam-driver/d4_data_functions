@@ -98,10 +98,9 @@ Confirm the date range for this slide. Default is **MTD** — proceed with MTD u
 Before fetching, present the user with a structured menu to confirm the exact data cut. Pre-select values based on the agreed topic using these rules:
 
 - **Dimension** — derived from the topic (e.g. "by campaign" → `Campaign`, "by asset" → `Asset`, "by platform" → `Ad Platform`). If no breakdown was specified, default to `Ad Platform`.
-- **Channel** — if the topic names a specific channel (e.g. "Paid Search by campaign"), pre-select that channel. If the topic is cross-channel or unspecified, leave open (all channels).
-- **Platform** — default to all platforms unless the topic explicitly names one (e.g. "Google campaigns" → `Google Ads`).
+- **Filters** — if the topic scopes to a specific channel, platform, campaign, or other dimension, pre-populate those as filters. If the topic is cross-channel or unspecified, leave filters empty.
 
-Render the menu in this format. Show only channels and platforms that exist in this client's data — derive channels from the `timeseries` keys returned in step 1a, and platforms from the `mom.llm_data` keys:
+Render the menu in this format:
 
 ---
 
@@ -111,27 +110,35 @@ Render the menu in this format. Show only channels and platforms that exist in t
 `Campaign` · `Campaign Group` · `Asset` · `Ad Platform`
 → Pre-selected: **[dimension]**
 
-**Ad Channel scope** — select one, multiple, or leave open:
-[list client channels from timeseries keys] · *(all channels)*
-→ Pre-selected: **[channel or "all channels"]**
+**Filters** *(optional)* — one filter per row, each with column · operator · value:
 
-**Ad Platform scope** *(optional)* — select one, multiple, or leave open:
-[list client platforms from mom.llm_data keys] · *(all platforms)*
-→ Pre-selected: **[platform or "all platforms"]**
+| Column | Operator | Value |
+|---|---|---|
+| [pre-populated based on topic, e.g. Ad Channel = Paid Social] | | |
+
+Operators: `=` · `!=` · `contains` · `not_contains` · `>` · `<` · `>=` · `<=`
+Value can be a single value or a list (for `=` and `!=`).
+Leave empty to include all data.
 
 ---
 
-Wait for the user to confirm or adjust. Do not call `fetch_trend_data` until this menu is confirmed. When the user selects multiple channels or platforms, use `channel_filter` or `platform_filter` instead of `channel`/`platform`.
+Wait for the user to confirm or adjust. Do not call `fetch_trend_data` until this menu is confirmed.
+
+**Discovering dimension values before filtering**
+
+If the user wants to filter by a specific dimension value (e.g. "filter by the MOFU campaign") and you don't know the exact values available, call `list_dimension_values` first:
+- `client_name` — the client name
+- `column` — the column to list values for (e.g. `Campaign`)
+- `filters` (optional) — JSON array to narrow the list first (e.g. scope to a channel before listing campaigns)
+
+Show the returned values to the user so they can confirm which one to filter by, then proceed to 2d.
 
 **2d. Fetch slide data**
 
 Call `fetch_trend_data` with the user-confirmed data cut. Pass:
 - `client_name`
 - `dimension` — the confirmed breakdown dimension column name
-- `channel` — the confirmed Ad Channel (single value). Leave empty if all channels or if using `channel_filter`.
-- `channel_filter` (optional) — JSON string `{"type": "include", "channels": [...]}` for multi-channel scoping. Use when the user has selected more than one channel.
-- `platform` (optional) — the confirmed Ad Platform (single value). Leave empty if all platforms or if using `platform_filter`.
-- `platform_filter` (optional) — JSON string `{"type": "include", "platforms": [...]}` for multi-platform scoping. Use when the user has selected more than one platform.
+- `filters` (optional) — JSON array of filter objects: `[{"column": "<col>", "op": "<op>", "value": "<val>"}]`. Any column from the raw data is valid. Value can be a string, number, or array. Leave empty to include all data.
 - `date_range` — the confirmed date range from step 2b.
 - `time_dimension` (optional) — column to group the timeseries by. One of: `Week number (ISO)`, `Month`, `Year`, `Date`. **Leave empty to use the recommended default for the selected date_range** (returned as `default_time_dimension` in the response). Override only if the user requests a different granularity. **The graph spec's `dimensions.x` must match the `time_dimension` value in the response.**
 
@@ -141,7 +148,7 @@ The returned `data_key` is the canonical key for this slide's data — use it ve
 
 **2e. Suggest and preview visualisation**
 
-Based on the fetched data from step 2d, propose a graph spec. Before fetching, state the intended graph data cut — dimension, channel/platform scope, date_range, and time_dimension — with brief reasoning (e.g. "to show ROAS over time I'll fetch `dimension=Ad Channel, date_range=ytd, time_dimension=Month`"). Then call `fetch_trend_data` with those parameters.
+Based on the fetched data from step 2d, propose a graph spec. Before fetching, state the intended graph data cut — dimension, filters, date_range, and time_dimension — with brief reasoning (e.g. "to show ROAS over time I'll fetch `dimension=Ad Channel, date_range=ytd, time_dimension=Month`"). Then call `fetch_trend_data` with those parameters.
 
 This is always a separate fetch from step 2d — call it independently regardless of whether the parameters appear similar. Never reuse the `data_key` from step 2d as `data_source`.
 
@@ -176,7 +183,7 @@ Then preview the graph inline by calling the `preview_graph` MCP tool:
 
 For non-table graph types the tool returns the chart as an inline image — display it directly below the slide text. For `table` and `table_comparison` graph types the tool returns a **markdown table rendered in chat**. In both cases this step is mandatory. Do not skip, defer, or substitute another rendering method.
 
-For table previews, the user can ask you to adjust `sort_by`, `sort_dir`, `row_filters`, or `show_totals` in the spec and you re-call `preview_graph` — no re-fetch needed. Iterate until the user is happy, then lock the table spec.
+For table and chart previews, the user can ask you to adjust `row_filters` in the spec (e.g. "filter out anything with zero spend") and you re-call `preview_graph` — no re-fetch needed. For tables you can also adjust `sort_by`, `sort_dir`, and `show_totals` without re-fetching. `row_filters` apply post-aggregation and work on any metric or the breakdown dimension value. Iterate until the user is happy, then lock the spec.
 
 If the tool returns an error, surface it verbatim and do not offer confirmation — fix the spec first.
 
@@ -296,6 +303,8 @@ Identify meaningful trend hypotheses from `mom`, `yoy`, and `timeseries` (contex
 ### Action Selection Rules
 
 Include one entry per task in the current 90-day plan. Use only tasks marked 'current', not 'old'.
+
+**Platform label rule**: When rendering `task.platform`, display `Meta Ads (Facebook/Instagram)` or `Meta Ads (Facebook / Instagram)` as `Facebook Ads`. All other platform labels are used as-is.
 
 All actions are rendered as a single bullet-list slide in the format `{task}: {summary} - {status}`. No graph specs are generated for actions.
 

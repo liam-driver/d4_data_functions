@@ -314,18 +314,21 @@ def send_weekly_report_html(client_name: str, html_body: str) -> str:
 
 
 @mcp.tool()
-def fetch_trend_data(client_name: str, channel: str, dimension: str, channel_filter: str = "", platform: str = "", platform_filter: str = "", time_dimension: str = "", date_range: str = "mtd") -> str:
-    """Fetch Previous Period, Previous Year, and timeseries data for a Trend Topic (scoped by channel and/or platform, broken down by dimension).
+def fetch_trend_data(client_name: str, dimension: str, filters: str = "", time_dimension: str = "", date_range: str = "mtd") -> str:
+    """Fetch Previous Period, Previous Year, and timeseries data for a Trend Topic broken down
+    by dimension, with optional pre-aggregation scope filters.
     Use this once per trend slide during the slide-by-slide workflow.
 
     client_name: the client name as it appears in config.json.
-    channel: the Ad Channel to scope the data to (e.g. 'Paid Search', 'Shopping', 'Paid Social Static', 'Display'). Leave empty to include all channels.
     dimension: the column name to break down by (e.g. 'Campaign', 'Asset', 'Campaign Group', 'Ad Platform').
-    channel_filter: optional JSON string {"type": "include"|"exclude", "channels": [...]} for
-                    multi-channel or exclusion scoping. If omitted, data is scoped to channel only.
-    platform: the Ad Platform to scope the data to. Must match the exact value in the sheet: 'Google Ads', 'Microsoft Ads', 'Facebook Ads', 'TikTok Ads'. Leave empty to include all platforms.
-    platform_filter: optional JSON string {"type": "include"|"exclude", "platforms": [...]} for
-                     multi-platform or exclusion scoping. If omitted, data is scoped to platform only.
+    filters: optional JSON array of filter objects applied to raw rows before grouping.
+             Each filter: {"column": "<col>", "op": "<op>", "value": "<val>"}.
+             column: any column in the raw data (e.g. 'Ad Channel', 'Ad Platform', 'Campaign').
+             op: one of =, !=, contains, not_contains, >, <, >=, <=
+             value: string, number, or array of strings (for = and !=).
+             Example: [{"column": "Ad Channel", "op": "=", "value": "Paid Social"},
+                       {"column": "Campaign", "op": "contains", "value": "MOFU"}]
+             Leave empty to include all data.
     time_dimension: column to group the timeseries by. One of: 'Week number (ISO)', 'Month', 'Year', 'Date'.
                     Leave empty to use the recommended default for the selected date_range.
                     The graph spec's dimensions.x must match the time_dimension returned in the response.
@@ -336,23 +339,43 @@ def fetch_trend_data(client_name: str, channel: str, dimension: str, channel_fil
     Persists the result to dimension_data[data_key] in the cached monthly JSON so the graph renderer
     can access it at PPTX build time.
 
-    Returns a JSON envelope: {channel, platform, dimension, date_range, date_range_label, data_key,
+    Returns a JSON envelope: {dimension, filters, date_range, date_range_label, data_key,
     time_dimension, default_time_dimension, prev_period_available, resolved_dates,
     previous_period, previous_year, timeseries}."""
     _validate_client_name(client_name)
-    parsed_channel_filter = None
-    if channel_filter and channel_filter.strip():
-        parsed_channel_filter = json.loads(channel_filter)
-    parsed_platform_filter = None
-    if platform_filter and platform_filter.strip():
-        parsed_platform_filter = json.loads(platform_filter)
+    parsed_filters = None
+    if filters and filters.strip():
+        parsed_filters = json.loads(filters)
     from monthly_reports.dimension_cuts import fetch_trend_data as _fetch
     result = _fetch(
-        client_name, channel, dimension,
-        parsed_channel_filter, platform or None, parsed_platform_filter,
-        time_dimension or None, date_range
+        client_name, dimension,
+        parsed_filters, time_dimension or None, date_range
     )
     return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def list_dimension_values(client_name: str, column: str, filters: str = "") -> str:
+    """List unique values for a dimension column in the raw client data.
+
+    Call this before fetch_trend_data when the user wants to filter by a specific dimension value
+    (e.g. 'filter by the MOFU campaign') so you can see real values before constructing filters.
+
+    client_name: the client name as it appears in config.json.
+    column: the column to list values for (e.g. 'Campaign', 'Ad Channel', 'Ad Platform', 'Asset').
+    filters: optional JSON array of filter objects to narrow the list before returning.
+             Same schema as fetch_trend_data filters.
+             Example: [{"column": "Ad Channel", "op": "=", "value": "Paid Social"}]
+             Use this to scope the list (e.g. only show Paid Social campaigns).
+
+    Returns a sorted list of unique non-null string values."""
+    _validate_client_name(client_name)
+    parsed_filters = None
+    if filters and filters.strip():
+        parsed_filters = json.loads(filters)
+    from monthly_reports.dimension_cuts import list_dimension_values as _list
+    values = _list(client_name, column, parsed_filters)
+    return json.dumps(values, ensure_ascii=False)
 
 
 def _render_markdown_table(headers, rows, totals_row):
