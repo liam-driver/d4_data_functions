@@ -81,9 +81,14 @@ Work through each trend slide one at a time. Do not move to the next slide until
 
 The user selects or proposes a trend topic — any channel, dimension, or combination worth exploring (e.g. "Paid Search", "Paid Search by Campaign", "Paid Social by Asset", "all channels by platform"). There is no distinction between channel-only and dimension-breakdown topics — all topics are resolved via `fetch_trend_data`.
 
-**2b. Agree the date range**
+**2b. Define the data cut**
 
-Confirm the date range for this slide. Default is **MTD** — proceed with MTD unless the user specifies otherwise. Present the options only if the user hasn't already indicated a preference:
+Derive all fields from the agreed topic and render the data cut block for confirmation. Do not call `fetch_trend_data` until the user has explicitly confirmed.
+
+**Deriving the fields:**
+
+- **Breakdown dimension** — derived from the topic: "by campaign" → `Campaign`, "by asset" → `Asset`, "by platform" → `Ad Platform`, "by channel" → `Ad Channel`. If no breakdown was specified, default to `Ad Platform`.
+- **Date range** — default `mtd` unless the user specified otherwise in step 2a. Valid options:
 
 | Option | `date_range` value | Current period (today = 2-day lag) | Previous Period | Previous Year |
 |---|---|---|---|---|
@@ -93,36 +98,36 @@ Confirm the date range for this slide. Default is **MTD** — proceed with MTD u
 | Last 90 Days | `last_90_days` | today−91 → today−2 | 90 days before that | Same 90 days, −1 year |
 | Year-to-Date | `ytd` | 1 Jan → today−2 | *(none)* | Same range, −1 year |
 
-**2c. Define the data cut**
+- **Filters** — if the topic scopes to a specific channel, platform, campaign, or other dimension, pre-populate those. If the topic is cross-channel or unspecified, leave empty.
+- **Metrics** — derived from topic and channel type, following the metric tier hierarchy:
+  - If scope includes a video channel (Paid Social Video, YouTube, Video) → lead with Hook Rate, Hold Rate, then CTR. Include Tier 1 outcome metrics (ROAS or CPA) if conversion data is available for the channel.
+  - If scope is awareness-led with no conversion data → Hook Rate, Hold Rate, View Rate, CTR.
+  - All other channels → lead with Tier 1 (ROAS or CPA), then Tier 2 (e.g. CTR, CPC, Conversion Rate). Omit Tier 3/4 unless the topic specifically calls for volume.
+  - If no channel is scoped (all channels) → lead with Tier 1 outcome metrics.
 
-Before fetching, present the user with a structured menu to confirm the exact data cut. Pre-select values based on the agreed topic using these rules:
-
-- **Dimension** — derived from the topic (e.g. "by campaign" → `Campaign`, "by asset" → `Asset`, "by platform" → `Ad Platform`). If no breakdown was specified, default to `Ad Platform`.
-- **Filters** — if the topic scopes to a specific channel, platform, campaign, or other dimension, pre-populate those as filters. If the topic is cross-channel or unspecified, leave filters empty.
-
-Render the menu in this format:
+**Render the block:**
 
 ---
 
 **Data cut for: [topic]**
 
-**Breakdown dimension** — one of:
-`Campaign` · `Campaign Group` · `Asset` · `Ad Platform`
+**Breakdown dimension:**
 → Pre-selected: **[dimension]**
 
-**Filters** *(optional)* — one filter per row, each with column · operator · value:
+**Date range:**
+→ Pre-selected: **[date_range] — [human label, e.g. Previous Month — May 2026]**
 
-| Column | Operator | Value |
-|---|---|---|
-| [pre-populated based on topic, e.g. Ad Channel = Paid Social] | | |
+**Filters:**
+→ [column] [op] **[value]**
+→ [column] [op] **[value]**
+*(Omit this section if no filters apply)*
 
-Operators: `=` · `!=` · `contains` · `not_contains` · `>` · `<` · `>=` · `<=`
-Value can be a single value or a list (for `=` and `!=`).
-Leave empty to include all data.
+**Metrics:**
+→ Pre-selected: **[Metric 1, Metric 2, ...]**
 
 ---
 
-Wait for the user to confirm or adjust. Do not call `fetch_trend_data` until this menu is confirmed.
+Wait for the user to confirm or correct. On any correction, re-render the full block with the updated values and wait again. Do not proceed until the user gives explicit confirmation (e.g. "confirmed", "looks good", "yes").
 
 **Discovering dimension values before filtering**
 
@@ -131,9 +136,9 @@ If the user wants to filter by a specific dimension value (e.g. "filter by the M
 - `column` — the column to list values for (e.g. `Campaign`)
 - `filters` (optional) — JSON array to narrow the list first (e.g. scope to a channel before listing campaigns)
 
-Show the returned values to the user so they can confirm which one to filter by, then proceed to 2d.
+Show the returned values to the user, then re-render the full data cut block with the chosen value and wait for confirmation.
 
-**2d. Fetch slide data**
+**2c. Fetch slide data**
 
 Call `fetch_trend_data` with the user-confirmed data cut. Pass:
 - `client_name`
@@ -146,11 +151,11 @@ The response includes `resolved_dates` (the exact date strings used), `date_rang
 
 The returned `data_key` is the canonical key for this slide's data — use it verbatim as `data_source` in the graph spec. This is **mandatory for every trend slide, no exceptions**. The renderer will error if `data_source` is absent. Report a brief progress update while fetching.
 
-**2e. Suggest and preview visualisation**
+**2d. Suggest and preview visualisation**
 
-Based on the fetched data from step 2d, propose a graph spec. Before fetching, state the intended graph data cut — dimension, filters, date_range, and time_dimension — with brief reasoning (e.g. "to show ROAS over time I'll fetch `dimension=Ad Channel, date_range=ytd, time_dimension=Month`"). Then call `fetch_trend_data` with those parameters.
+Based on the fetched data from step 2c, propose a graph spec. Before fetching, state the intended graph data cut — dimension, filters, date_range, and time_dimension — with brief reasoning (e.g. "to show ROAS over time I'll fetch `dimension=Ad Channel, date_range=ytd, time_dimension=Month`"). Then call `fetch_trend_data` with those parameters.
 
-This is always a separate fetch from step 2d — call it independently regardless of whether the parameters appear similar. Never reuse the `data_key` from step 2d as `data_source`.
+This is always a separate fetch from step 2c — call it independently regardless of whether the parameters appear similar. Never reuse the `data_key` from step 2c as `data_source`.
 
 Once the graph data returns:
 - Set `data_source` to the `data_key` from **this fetch**
@@ -159,17 +164,17 @@ Once the graph data returns:
 - Show the resolved dates and the preview image
 
 Wait for the user to confirm or challenge:
-- **Confirmed** → graph spec is locked. Advance to 2f.
+- **Confirmed** → graph spec is locked. Advance to 2e.
 - **Challenged with a specific direction** → incorporate the feedback, re-state the updated data cut, re-call `fetch_trend_data`, rebuild the spec, re-preview. Repeat until confirmed.
 - **Challenged without a direction** → propose an alternative graph, re-state the new data cut, re-fetch, re-preview. Repeat until confirmed.
 
-If the data is too sparse or noisy to support a meaningful graph, flag this and proceed to 2f as a commentary-only slide — skip this step's fetch and loop.
+If the data is too sparse or noisy to support a meaningful graph, flag this and proceed to 2e as a commentary-only slide — skip this step's fetch and loop.
 
 YoY timeseries on a **shared calendar axis** (two lines plotted against their actual dates from different years) is not supported — do not suggest this. For period-over-period line comparisons, use `comparison_line` with positional alignment instead.
 
-**2f. Render the slide**
+**2e. Render the slide**
 
-Once the graph spec is confirmed in step 2e, choose the most appropriate template for this slide from the template bank. Lead with your recommendation and the reasoning (e.g. "I'd use `chart_commentary` here — the time series tells the story cleanly with commentary alongside"). Then render the full slide in the **Slide Preview Format** section below — title, summary, bullets, graph spec, and chosen template. Use the graph spec locked in step 2e verbatim — do not regenerate it. Write all commentary using the data fetched in step 2d. Follow all Commentary Rules when generating content.
+Once the graph spec is confirmed in step 2d, choose the most appropriate template for this slide from the template bank. Lead with your recommendation and the reasoning (e.g. "I'd use `chart_commentary` here — the time series tells the story cleanly with commentary alongside"). Then render the full slide in the **Slide Preview Format** section below — title, summary, bullets, graph spec, and chosen template. Use the graph spec locked in step 2d verbatim — do not regenerate it. Write all commentary using the data fetched in step 2c. Follow all Commentary Rules when generating content.
 
 For `table` and `table_commentary` templates: set `graph_type: "table"` in the graph spec. The renderer will produce a tabular layout instead of a chart. Use when ranking, multi-metric comparisons, or dense data is more readable as rows than a chart.
 
@@ -187,11 +192,11 @@ For table and chart previews, the user can ask you to adjust `row_filters` in th
 
 If the tool returns an error, surface it verbatim and do not offer confirmation — fix the spec first.
 
-**2g. Iterate**
+**2f. Iterate**
 
-Respond to user feedback by re-rendering the slide. The graph spec is locked from step 2e — iterations are text and commentary only. Do not modify the graph spec. If the user asks to change the graph, return to step 2e. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
+Respond to user feedback by re-rendering the slide. The graph spec is locked from step 2d — iterations are text and commentary only. Do not modify the graph spec. If the user asks to change the graph, return to step 2d. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
 
-**2h. Confirm and continue**
+**2g. Confirm and continue**
 
 Slide is locked in. Ask the user if they want to add another trend topic or move to the confirmation gate.
 
@@ -498,7 +503,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
       "title": "string — short trend label (e.g. 'Paid Search ROAS Recovery')",
       "summary": "string — 15 words maximum, hard limit. Lead with direction. One data point only if it adds something a direction word cannot.",
       "bullets": [{"point": "string"}],
-      "template": "string — one of the valid slide templates. Default: \"chart_commentary\". Confirmed with the user in step 2f.",
+      "template": "string — one of the valid slide templates. Default: \"chart_commentary\". Confirmed with the user in step 2e.",
       "graph": {
         "graph_type": "string — one of the valid graph_types",
         "dimensions": {
