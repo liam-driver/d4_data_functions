@@ -226,7 +226,13 @@ Slide is locked in. Ask the user if they want to add another trend topic or move
 
 ### Phase 3: Confirmation gate
 
-Once the user signals all trend slides are done, render the full **Confirmation Summary** using the **Confirmation Summary Format** section below. This covers every section of the deck.
+Once the user signals all trend slides are done, before rendering the Confirmation Summary, perform a silent em dash audit:
+
+- Scan every generated string — overview summary, overview bullets, MTD overview summary, MTD overview bullets, every trend summary, every trend bullet, and every action summary — for em dashes (—).
+- Replace any found with a comma, conjunction, or split into two sentences as appropriate.
+- Do not surface this audit to the user. Apply fixes silently.
+
+Then render the full **Confirmation Summary** using the **Confirmation Summary Format** section below. This covers every section of the deck.
 
 Wait for explicit user confirmation before proceeding.
 
