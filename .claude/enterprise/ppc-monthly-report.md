@@ -23,7 +23,29 @@ Call `fetch_monthly_client_data` with the client name. This returns:
 
 The reporting period for the main deck is the previous full calendar month (e.g. if today is May 2026, the period is 01/04/2026 – 30/04/2026). The response also includes a `plan` key containing the client's 90-day plan tasks fetched directly from Google Sheets. Client context — background, goals, KPIs, seasonality, historical context, and `slack_channel_id` — is stored in the project documents for this client.
 
-**1b. Fetch Slack context**
+**1b. Confirm scorecard comparison periods**
+
+Before fetching Slack context or rendering the preview, ask the user which comparison period they want shown in the scorecard KPI boxes for each overview slide. Present the choice as two simple questions:
+
+---
+
+**Scorecard comparison — please confirm before we continue**
+
+**Previous Month Performance Overview** — which comparison do you want in the scorecards?
+- **MoM** — vs. the calendar month before [previous month]
+- **YoY** — vs. the same month last year
+
+**Current Month Performance Overview** — which comparison do you want in the scorecards?
+- **MoM** — vs. the same days last month
+- **YoY** — vs. the same days last year *(default)*
+
+---
+
+Wait for the user to confirm both choices before proceeding. Record the confirmed values as `overview_comparison` (`"mom"` or `"yoy"`) and `mtd_comparison` (`"mom"` or `"yoy"`). Use these values throughout the rest of the workflow — in commentary framing, initial preview data selection, and the final JSON output.
+
+If `mtd.start_date` is not present in the fetch response, skip the MTD question entirely.
+
+**1c. Fetch Slack context**
 
 Read `slack_channel_id` from the project documents. If set, use the Slack MCP to:
 - Get the channel topic and purpose from channel info
@@ -33,9 +55,9 @@ Read `slack_channel_id` from the project documents. If set, use the Slack MCP to
 
 If `slack_channel_id` is not available, skip and note no Slack context is available. Use Slack context silently as background input — do not surface it verbatim in the deck or preview.
 
-**1c. Render the initial preview**
+**1d. Render the initial preview**
 
-Using the baseline data and Slack context, render the **Initial Preview** in chat using the **Initial Preview Format** section below. This contains:
+Using the baseline data, confirmed comparison choices, and Slack context, render the **Initial Preview** in chat using the **Initial Preview Format** section below. Use `overview_comparison` to frame the previous-month scorecard data and `mtd_comparison` to frame the current-month scorecard data. This contains:
 - **{Previous Month} Performance Overview** — fully populated with real scorecard data and commentary using `mom` and `yoy` data
 - **{Current Month} Performance Overview** — fully populated with real scorecard data and commentary using `mtd` data compared to the same days last year. Only included if `mtd.start_date` is present in the fetch response.
 - **Top Level Trends** — draft suggestions only (not full slides), each a short hypothesis about a potential trend topic derived from the baseline timeseries and Slack signals
@@ -44,7 +66,7 @@ Using the baseline data and Slack context, render the **Initial Preview** in cha
 
 Invite the user to adopt, adapt, or add to the trend suggestions, and flag any changes to Overview or Actions.
 
-**1d. Show the template menu**
+**1e. Show the template menu**
 
 After the initial preview, display the following once so the user knows what's available. Do not repeat this on every slide — show it once here.
 
@@ -491,13 +513,15 @@ Generate a JSON object exactly matching this structure before calling `generate_
     "summary": "string — single headline sentence for the previous-month overview slide",
     "bullets": [{"point": "string"}],
     "template": "string — one of the valid slide templates. Default: \"scorecard_vertical\". Omit to use the default.",
-    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default."
+    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default.",
+    "comparison": "string — \"mom\" or \"yoy\". Confirmed with the user in step 1b. Controls which comparison period is shown in the scorecard KPI boxes."
   },
   "mtd_overview": {
-    "summary": "string — single headline sentence for the current-month TD slide (15 words max, YoY framing)",
+    "summary": "string — single headline sentence for the current-month TD slide (15 words max)",
     "bullets": [{"point": "string"}],
     "template": "string — one of the valid slide templates. Default: \"scorecard_vertical\". Omit to use the default.",
-    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default."
+    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default.",
+    "comparison": "string — \"mom\" or \"yoy\". Confirmed with the user in step 1b. Controls which comparison period is shown in the MTD scorecard KPI boxes. Default: \"yoy\"."
   },
   "trends": [
     {
@@ -543,8 +567,10 @@ Generate a JSON object exactly matching this structure before calling `generate_
 - `overview.bullets`: 3–6 items
 - `overview.template`: one of `scorecard_vertical`, `scorecard_horizontal`, `chart_commentary`. Defaults to `scorecard_vertical` if omitted.
 - `overview.kpi_count`: integer 1–4. Defaults to 3 if omitted. Only applies to scorecard templates.
+- `overview.comparison`: `"mom"` or `"yoy"`. Required — use the value confirmed in step 1b.
 - `mtd_overview.bullets`: 3–6 items. Include `mtd_overview` whenever `mtd.start_date` was present in the fetch response — omit the key entirely if MTD data was not available.
 - `mtd_overview.template` / `mtd_overview.kpi_count`: same rules as `overview`.
+- `mtd_overview.comparison`: `"mom"` or `"yoy"`. Required when `mtd_overview` is present — use the value confirmed in step 1b. Defaults to `"yoy"` if the user did not specify.
 - `trends[].bullets`: 1–4 items per trend
 - `trends[].template`: one of the 7 valid slide templates. Defaults to `chart_commentary` if omitted.
 - `trends[].graph`: required on every trend — never `null`. For `table` and `table_commentary` templates, set `graph_type: "table_comparison"` (default) or `"table"` (current period only), and `style: "distribution"`. Optionally include `sort_by`, `sort_dir`, `row_filters`, and `show_totals` — confirm these with the user during the preview iteration loop before locking the spec.
