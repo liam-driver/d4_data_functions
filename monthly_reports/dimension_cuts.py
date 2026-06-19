@@ -107,39 +107,52 @@ def _build_data_key(dimension, filters, date_range=None):
 
 
 def _apply_scope_filters(df, filters):
-    """filters: list of {column, op, value} dicts. Applies pre-aggregation row-level filtering."""
+    """filters: list of {column, op, value} dicts. Applies pre-aggregation row-level filtering.
+
+    Filters on the same column are combined with OR; filters on different columns are ANDed.
+    This lets callers pass multiple contains/= filters on one column to match any of several values.
+    """
     if not filters:
         return df
+
+    from collections import defaultdict
+    col_groups = defaultdict(list)
     for f in filters:
-        col = f.get('column', '')
-        op  = f.get('op', '=')
-        val = f.get('value')
+        col_groups[f.get('column', '')].append(f)
+
+    for col, col_filters in col_groups.items():
         if col not in df.columns:
             continue
-        if op == '=':
-            if isinstance(val, list):
-                df = df[df[col].isin(val)]
+        mask = pd.Series(False, index=df.index)
+        for f in col_filters:
+            op  = f.get('op', '=')
+            val = f.get('value')
+            if op == '=':
+                if isinstance(val, list):
+                    mask |= df[col].isin(val)
+                else:
+                    mask |= df[col].astype(str) == str(val)
+            elif op == '!=':
+                if isinstance(val, list):
+                    mask |= ~df[col].isin(val)
+                else:
+                    mask |= df[col].astype(str) != str(val)
+            elif op == 'contains':
+                mask |= df[col].astype(str).str.contains(str(val), case=False, na=False)
+            elif op == 'not_contains':
+                mask |= ~df[col].astype(str).str.contains(str(val), case=False, na=False)
             else:
-                df = df[df[col].astype(str) == str(val)]
-        elif op == '!=':
-            if isinstance(val, list):
-                df = df[~df[col].isin(val)]
-            else:
-                df = df[df[col].astype(str) != str(val)]
-        elif op == 'contains':
-            df = df[df[col].astype(str).str.contains(str(val), case=False, na=False)]
-        elif op == 'not_contains':
-            df = df[~df[col].astype(str).str.contains(str(val), case=False, na=False)]
-        else:
-            numeric_col = pd.to_numeric(df[col], errors='coerce')
-            try:
-                fv = float(val)
-                if   op == '>':  df = df[numeric_col >  fv]
-                elif op == '<':  df = df[numeric_col <  fv]
-                elif op == '>=': df = df[numeric_col >= fv]
-                elif op == '<=': df = df[numeric_col <= fv]
-            except (ValueError, TypeError):
-                pass
+                numeric_col = pd.to_numeric(df[col], errors='coerce')
+                try:
+                    fv = float(val)
+                    if   op == '>':  mask |= numeric_col >  fv
+                    elif op == '<':  mask |= numeric_col <  fv
+                    elif op == '>=': mask |= numeric_col >= fv
+                    elif op == '<=': mask |= numeric_col <= fv
+                except (ValueError, TypeError):
+                    pass
+        df = df[mask]
+
     return df
 
 

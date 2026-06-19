@@ -1120,7 +1120,11 @@ def render_table_data(graph, client, max_rows=12, comparison=True):
     if not comp_data or not metrics:
         return [], [], None
 
-    items = [(dv, md) for dv, md in comp_data.items() if isinstance(md, dict)]
+    # Exclude any pre-aggregated "Total" row that fetch_trend_data inserts via get_total_row;
+    # render_table_data computes its own totals row from the real dimension rows below.
+    _TOTAL_KEYS = {'total', 'totals'}
+    items = [(dv, md) for dv, md in comp_data.items()
+             if isinstance(md, dict) and str(dv).strip().lower() not in _TOTAL_KEYS]
 
     if row_filters:
         items = _apply_row_filters(items, row_filters, dimension_col)
