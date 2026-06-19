@@ -79,6 +79,10 @@ HEADER_TEXT_COLOUR = {
 def _set_text(tf, text, size=Pt(14)):
     tf.text = text
     for p in tf.paragraphs:
+        pPr = p._p.get_or_add_pPr()
+        pPr.set('algn', 'l')
+        pPr.set('marL', '0')
+        pPr.set('indent', '0')
         for run in p.runs:
             run.font.size = size
 
