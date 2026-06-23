@@ -403,9 +403,20 @@ def generate_mtd_slide_content(client):
                                 "properties": {"point": {"type": "string"}},
                                 "required": ["point"]
                             }
+                        },
+                        "bullets_presentation": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 3,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"point": {"type": "string"}},
+                                "required": ["point"]
+                            }
                         }
                     },
-                    "required": ["summary", "bullets"]
+                    "required": ["summary", "bullets", "bullets_presentation"]
                 }
             },
             "required": ["mtd_overview"]
@@ -429,14 +440,16 @@ def generate_mtd_slide_content(client):
             "STYLE REQUIREMENTS:\n"
             "- summary: 15 words maximum. Hard limit — count the words. Lead with direction, one data point only if it adds something a direction word cannot.\n"
             "- bullets: 3–6 points. Each bullet carries one idea. Include a data point only if it genuinely strengthens the bullet. Max one data point per bullet.\n"
+            "- bullets_presentation: 2–3 narrative talking points for the in-room presentation copy. No data points, percentages, figures, or currency values. Direction and narrative only. Each bullet is a complete sentence a presenter can speak aloud.\n"
             "- Acronyms (ROAS, CPA, CTR, AOV) in all caps. Do not capitalise non-acronym metric names.\n"
             "- Note this is a partial month — frame commentary accordingly (e.g. 'month to date').\n"
         ),
         input=[{
             "role": "user",
             "content": (
-                "Generate mtd_overview summary and bullets for the month-to-date performance slide.\n"
+                "Generate mtd_overview summary, bullets, and bullets_presentation for the month-to-date performance slide.\n"
                 "Use paid_data_mtd as the primary source. Comparison is YoY (same days last year).\n"
+                "bullets_presentation: 2–3 narrative-only talking points — no data points, no figures. For the presenter to speak aloud in the room.\n"
                 "Input JSON:\n"
                 + json.dumps(payload, ensure_ascii=False)
             )
@@ -555,9 +568,22 @@ def generate_monthly_slide_content(client):
                                 },
                                 "required": ["point"]
                             }
+                        },
+                        "bullets_presentation": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 3,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "point": {"type": "string"}
+                                },
+                                "required": ["point"]
+                            }
                         }
                     },
-                    "required": ["summary", "bullets"]
+                    "required": ["summary", "bullets", "bullets_presentation"]
                 },
                 "trends": {
                     "type": "array",
@@ -571,6 +597,19 @@ def generate_monthly_slide_content(client):
                                 "type": "array",
                                 "minItems": 1,
                                 "maxItems": 4,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "point": {"type": "string"}
+                                    },
+                                    "required": ["point"]
+                                }
+                            },
+                            "bullets_presentation": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 3,
                                 "items": {
                                     "type": "object",
                                     "additionalProperties": False,
@@ -614,7 +653,7 @@ def generate_monthly_slide_content(client):
                                 "required": ["graph_type", "dimensions", "metrics", "date_range", "filters", "title", "style"]
                             }
                         },
-                        "required": ["title", "summary", "bullets", "graph"]
+                        "required": ["title", "summary", "bullets", "bullets_presentation", "graph"]
                     }
                 },
                 "actions": {
@@ -719,6 +758,13 @@ def generate_monthly_slide_content(client):
             "- When referencing dates, use British standard format (dd/mm/yyyy).\n"
             "- When referencing volume metrics, account for spend — do not reference conversions or revenue movements in isolation.\n"
 
+            "PRESENTATION BULLETS (bullets_presentation):\n"
+            "- For every slide that has bullets, also produce bullets_presentation: narrative talking points for the in-room presentation copy.\n"
+            "- No data points, percentages, figures, or currency values of any kind — direction and narrative only.\n"
+            "- Each bullet is one idea a presenter can speak aloud confidently in a client meeting. Write it as a complete, natural sentence.\n"
+            "- Do not strip numbers from the detailed bullets — write bullets_presentation independently so the narrative flows without data.\n"
+            "- overview gets 2–3 presentation bullets. Each trend gets 1–3 presentation bullets.\n\n"
+
             "GRAPH SCHEMA — you must only use values from this schema when generating graph specs:\n"
             + json.dumps({
                 "dimensions": GRAPH_SCHEMA["dimensions"],
@@ -749,13 +795,15 @@ def generate_monthly_slide_content(client):
                     "1) overview\n"
                     "- summary: the headline paid media story for the period in 15 words or fewer. Hard limit — count the words. Lead with direction, aligned to the client's primary KPI.\n"
                     "- bullets: 3–6 bullet points covering the most important performance movements across paid channels. "
-                    "Each bullet carries one idea. Reference a specific channel. Include a data point only if it makes the bullet stronger — not by default. Max one data point per bullet.\n\n"
+                    "Each bullet carries one idea. Reference a specific channel. Include a data point only if it makes the bullet stronger — not by default. Max one data point per bullet.\n"
+                    "- bullets_presentation: 2–3 narrative talking points for the in-room presentation copy. No data points — direction and story only. Each bullet is a complete sentence a presenter can speak aloud.\n\n"
 
                     "2) trends\n"
                     "Identify the most meaningful trends visible in paid_data_90_day. Each trend gets its own slide.\n"
                     "- title: a short, clear label for the trend (e.g. 'Paid Search ROAS Recovery', 'CPA Pressure Across Social').\n"
                     "- summary: 15 words maximum. Hard limit — count the words before submitting. Lead with direction, one supporting data point only if it adds something a direction word cannot.\n"
                     "- bullets: 1–4 supporting points. Each bullet carries one idea — if it needs two clauses, write two bullets. No em dashes. No chaining with 'while', 'however', or 'suggesting that'. Include a data point only if it genuinely strengthens the bullet. Max one data point per bullet.\n"
+                    "- bullets_presentation: 1–3 narrative talking points for the in-room presentation copy. No data points — direction and story only. Each bullet is a complete sentence a presenter can speak aloud.\n"
                     "- graph: every trend must have a graph spec. Choose the graph that best visualises the trend over time using paid_data_90_day. "
                     "Use graph_type 'line' for trends over time, 'bar' for period comparisons. "
                     "Set date_range to cover the full 90-day window. Serialise filters as a JSON string using exact values from filter_values in the graph schema (e.g. '{\"Ad Channel\": \"Paid Search\"}').\n"

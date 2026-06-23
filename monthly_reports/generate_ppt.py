@@ -1232,12 +1232,12 @@ def _render_overview_slide(prs, client, template, title, summary, bullets, kpis,
         slide_scorecard_vertical(prs, title, summary, bullets, kpis, date_label)
 
 
-def _render_trend_slide(prs, client, trend):
+def _render_trend_slide(prs, client, trend, bullet_key='bullets'):
     template   = trend.get('template', 'chart_commentary')
     graph      = trend.get('graph', {})
     title      = trend['title']
     summary    = trend['summary']
-    bullets    = trend['bullets']
+    bullets    = trend.get(bullet_key, trend['bullets'])
     date_label = _resolve_date_label_for_graph(client, graph) if graph.get('data_source') else None
 
     if template in ('table', 'table_commentary'):
@@ -1301,30 +1301,10 @@ def _render_trend_slide(prs, client, trend):
 
 # ── PIPELINE ORCHESTRATOR ─────────────────────────────────────────────────────
 
-def generate_ppt(client_name, output_path=None, slide_content=None):
-    data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
-    if not os.path.exists(data_path):
-        raise FileNotFoundError(
-            f"No monthly data file found for '{client_name}'. "
-            f"Run: python -m monthly_reports.main --client \"{client_name}\""
-        )
-    with open(data_path, "r", encoding="utf-8") as f:
-        client = json.load(f)
-
-    if slide_content is None:
-        slide_content = generate_monthly_slide_content(client)
-        mtd_content = generate_mtd_slide_content(client)
-        slide_content = {**slide_content, **mtd_content}
-    client['slide_content'] = slide_content
-    content_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_content.json")
-    with open(content_path, "w", encoding="utf-8") as f:
-        json.dump(client['slide_content'], f, ensure_ascii=False, indent=2)
-
+def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
+    """Build a single PPTX from slide content, selecting bullets by bullet_key."""
     prev_month = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B")
 
-    if output_path is None:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        output_path = os.path.join(PROJECT_ROOT, "slides", f"{client_name}_monthly_{timestamp}.pptx")
     template_path = os.path.join(PROJECT_ROOT, "slides", "template.pptx")
     shutil.copy(template_path, output_path)
     prs = Presentation(output_path)
@@ -1333,10 +1313,7 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
     prs.part.drop_rel(slide_rid)
     prs.slides._sldIdLst.remove(prs.slides._sldIdLst[0])
 
-    sc = client['slide_content']
-
     slide_cover(prs, f'{client["name"]} Monthly Deck')
-
     slide_section_separator(prs, 'Paid Media', variant='navy')
 
     # ── Performance Overview ──────────────────────────────────────────────────
@@ -1354,7 +1331,7 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
         prs, client, overview_template,
         title=f'{prev_month} Performance',
         summary=sc['overview']['summary'],
-        bullets=sc['overview']['bullets'],
+        bullets=sc['overview'].get(bullet_key, sc['overview']['bullets']),
         kpis=kpis,
         date_label=overview_date_label,
     )
@@ -1377,7 +1354,7 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
             prs, client, mtd_template,
             title=f'{mtd_month} Performance',
             summary=sc['mtd_overview']['summary'],
-            bullets=sc['mtd_overview']['bullets'],
+            bullets=sc['mtd_overview'].get(bullet_key, sc['mtd_overview']['bullets']),
             kpis=mtd_kpis,
             date_label=mtd_date_label,
         )
@@ -1385,7 +1362,7 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
     # ── Trend Slides ─────────────────────────────────────────────────────────
     slide_section_separator(prs, 'Top Level Trends', variant='gold')
     for trend in sc['trends']:
-        _render_trend_slide(prs, client, trend)
+        _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
 
     slide_section_separator(prs, 'Plan Overview', variant='gold')
     plan_json = client.get('plan_json')
@@ -1398,12 +1375,44 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
 
     prs.save(output_path)
     print(f"Saved {output_path} with {len(prs.slides)} slide(s)")
+    return output_path
+
+
+def generate_ppt(client_name, output_path=None, slide_content=None):
+    data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(
+            f"No monthly data file found for '{client_name}'. "
+            f"Run: python -m monthly_reports.main --client \"{client_name}\""
+        )
+    with open(data_path, "r", encoding="utf-8") as f:
+        client = json.load(f)
+
+    if slide_content is None:
+        slide_content = generate_monthly_slide_content(client)
+        mtd_content = generate_mtd_slide_content(client)
+        slide_content = {**slide_content, **mtd_content}
+    client['slide_content'] = slide_content
+    content_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_content.json")
+    with open(content_path, "w", encoding="utf-8") as f:
+        json.dump(client['slide_content'], f, ensure_ascii=False, indent=2)
+
+    if output_path is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        output_path = os.path.join(PROJECT_ROOT, "slides", f"{client_name}_monthly_{timestamp}.pptx")
+
+    base, ext = os.path.splitext(output_path)
+    presentation_path = f"{base}_presentation{ext}"
+
+    sc = client['slide_content']
+    _assemble_pptx(client, sc, output_path, bullet_key='bullets')
+    _assemble_pptx(client, sc, presentation_path, bullet_key='bullets_presentation')
 
     excel_path = export_slide_data(client, sc, output_path)
     if excel_path:
         print(f"Saved data export to {excel_path}")
 
-    return output_path, excel_path
+    return output_path, presentation_path, excel_path
 
 
 if __name__ == "__main__":

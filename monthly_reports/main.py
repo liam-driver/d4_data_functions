@@ -146,8 +146,9 @@ def run_monthly_report(client_name, data_only=False):
     from monthly_reports.generate_ppt import generate_ppt
     month_str = start_date.strftime("%Y_%m")
     output_path = f"slides/{client_name}_monthly_{month_str}.pptx"
-    generate_ppt(client_name, output_path)
+    output_path, presentation_path, _ = generate_ppt(client_name, output_path)
     print(f"Monthly report saved to {output_path}")
+    print(f"Presentation copy saved to {presentation_path}")
     return output_path
 
 

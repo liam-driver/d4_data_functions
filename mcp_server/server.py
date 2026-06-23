@@ -449,34 +449,45 @@ def preview_graph(client_name: str, graph_spec: str) -> list:
 @mcp.tool()
 def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     """Generate the monthly PPTX for a client from pre-generated slide content.
-    slide_content must be a JSON string with keys: overview (summary, bullets),
-    mtd_overview (summary, bullets — omit if MTD data was unavailable),
-    trends (list of title/summary/bullets/graph objects), and actions (list of
-    task/summary/status/graph objects). Returns a JSON object with 'path' and
-    'download_url' — share the download_url with the user so they can download
-    the file directly."""
+    slide_content must be a JSON string with keys: overview (summary, bullets,
+    bullets_presentation), mtd_overview (summary, bullets, bullets_presentation —
+    omit if MTD data was unavailable), trends (list of title/summary/bullets/
+    bullets_presentation/graph objects), and actions (list of task/summary/status/
+    graph objects). Always produces two decks: a detailed deck (full metric bullets)
+    and a presentation deck (narrative-only bullets, data-free). Returns a JSON
+    object with 'path', 'download_url', 'presentation_path', and
+    'presentation_download_url' — share both download URLs with the user."""
     _validate_client_name(client_name)
     from monthly_reports.generate_ppt import generate_ppt
     content = json.loads(slide_content)
-    output_path, excel_path = generate_ppt(client_name, slide_content=content)
+    output_path, presentation_path, excel_path = generate_ppt(client_name, slide_content=content)
     filename = os.path.basename(output_path)
+    presentation_filename = os.path.basename(presentation_path)
     download_url = f"{ISSUER_URL}/files/{filename}"
+    presentation_download_url = f"{ISSUER_URL}/files/{presentation_filename}"
 
     # Clean up generated files older than 7 days to avoid unbounded storage growth.
     slides_dir = os.path.join(PROJECT_ROOT, "slides")
     cutoff = time.time() - 7 * 86400
+    protected = {
+        os.path.abspath(output_path),
+        os.path.abspath(presentation_path),
+        os.path.abspath(excel_path) if excel_path else "",
+    }
     for pattern in (f"{client_name}_monthly_*.pptx", f"{client_name}_monthly_*_data.xlsx"):
         for old_file in _glob.glob(os.path.join(slides_dir, pattern)):
-            if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) not in (
-                os.path.abspath(output_path),
-                os.path.abspath(excel_path) if excel_path else "",
-            ):
+            if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) not in protected:
                 try:
                     os.remove(old_file)
                 except OSError:
                     pass
 
-    result = {"path": output_path, "download_url": download_url}
+    result = {
+        "path": output_path,
+        "download_url": download_url,
+        "presentation_path": presentation_path,
+        "presentation_download_url": presentation_download_url,
+    }
     if excel_path:
         excel_filename = os.path.basename(excel_path)
         result["excel_path"] = excel_path
