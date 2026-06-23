@@ -394,51 +394,60 @@ Once all module findings are confirmed, produce a single Obsidian-compatible mar
 Date, prepared by, data period, account ID
 
 ## Context
-Brief account background and reason for audit
+2-3 sentences: account type, audit reason, and current state. No findings -- just enough to orient someone opening the file a week later.
 
-## Shared Foundations
-### 1. Conversion Tracking
-### 2. Change History
+## Phase 1 -- Immediate (Week 1)
+## Phase 2 -- Structural (Next 30 Days)
+## Phase 3 -- Dependencies
+## Phase 4 -- Review Points
 
-## Channel Findings
-### 3. Search
-#### i. Campaign Structure and Naming
-#### ii. Bid Strategies
-#### iii. Budget Distribution
-#### iv. Brand Term Handling
-#### v. Keyword and Search Term Coverage
-
-### 4. Performance Max (if applicable)
-#### i. Campaign Structure and Asset Groups
-#### ii. Bid Strategies
-#### iii. Budget Distribution
-#### iv. Brand Term Handling
-#### v. Feed and Listing Group Coverage (if applicable)
-
-### 5. Shopping (if applicable)
-#### i. Campaign Structure and Naming
-#### ii. Bid Strategies
-#### iii. Budget Distribution
-#### iv. Feed and Product Coverage
-#### v. Brand Term Handling
-
-## Action Plan
-### Phase 1 -- Immediate (Week 1)
-### Phase 2 -- Structural Rebuild (Weeks 2-3)
-### Phase 3 -- Dependencies
-### Phase 4 -- Review Point (Week 6-8)
-
-## Future Scope / Follow-up Actions
+## Backlog
 ```
+
+**Task card format:**
+
+Each action is a checkbox task with three indented fields. No prose paragraphs. No findings narrative.
+
+```markdown
+- [ ] Short action title
+  - **Issue:** One sentence. What is wrong or missing right now.
+  - **Solution:** One sentence. What the fix is.
+  - **Steps:** The specific things to action -- campaigns, lists, settings, owners. Enough detail to execute without reopening the audit conversation.
+```
+
+**Phase guidance:**
+
+- Phase 1: actions executable immediately with no structural rebuild required -- negative lists, pausing redundant campaigns, conversion tracking fixes, disabling auto-apply
+- Phase 2: structural changes that need planning or a short runway -- budget reallocation, campaign consolidation, bid strategy changes
+- Phase 3: actions blocked on an external dependency -- clearly name the owner (dev, client, another team member) in the Steps field
+- Phase 4: items to check at a future date -- state the review date or trigger condition in the Steps field
+
+**Backlog:**
+
+A simple bullet list (not task cards) of items identified during the audit but explicitly out of scope for this cycle. Nothing gets lost. No checkboxes -- these are not in the queue yet.
 
 **Writing guidelines:**
 
-- Use findings and data confirmed through the human-in-the-loop review -- do not introduce new observations at the output stage
-- Include data tables where they add clarity (campaign performance summary, budget distribution, term coverage breakdown)
-- Phase 1 should contain only actions that can be done immediately without a structural rebuild -- conversion tracking fixes, negative lists, pausing redundant campaigns, disabling auto-apply
-- Phase 3 (Dependencies) should clearly identify the owner of each dependency (dev, client, another team member)
-- Future Scope should capture everything identified but explicitly agreed as out of scope for this audit -- nothing gets lost
+- Use only findings and data confirmed through the human-in-the-loop review -- do not introduce new observations at output stage
+- Every field (Issue, Solution, Steps) is one sentence or a short list -- no explanatory paragraphs
+- Steps should be specific enough to action without referring back to the audit document or conversation
+- Phase 3 Steps must name the dependency owner
 - No em dashes anywhere in the document
 - UK English throughout
 
 Present the file to the user using `present_files` once written.
+
+---
+
+## Step 6: WOL Message
+
+After the document is written, generate a Working Out Loud message following the `d4-wol` skill (tone, style, format, and output rules all apply).
+
+**Audit-specific content to cover:**
+
+- What was audited and over what period
+- The main issues found (2-4 headline problems -- not an exhaustive list)
+- What is being done about them (Phase 1 actions and any significant Phase 2 items)
+- Who owns what if there are external dependencies
+
+Do not produce a summary of every finding. The WOL is a team-facing overview of the issues and the plan -- not a condensed version of the audit document.

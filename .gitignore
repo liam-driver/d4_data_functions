@@ -10,7 +10,7 @@
 !monthly_reports/
 !traps_and_tripwires/
 !mcp_server/
-!.claude/
+!claude/
 !templates/
 !fonts/
 !slides/
@@ -24,7 +24,7 @@
 !monthly_reports/**
 !traps_and_tripwires/**
 !mcp_server/**
-!.claude/**
+!claude/**
 !templates/**
 !fonts/**
 !slides/template.pptx
@@ -36,7 +36,7 @@
 !README.*
 
 # Override: always ignore these regardless of above rules
-.claude/settings.local.json
+claude/settings.local.json
 secrets.json
 creds.json
 storage/*

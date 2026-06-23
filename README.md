@@ -3,8 +3,8 @@
 **Windows**
           
 ```bash
-git clone https://github.com/liam-driver/d4_weekly_reports.git
-cd d4_weekly_reports
+git clone https://github.com/liam-driver/d4_data_functions.git
+cd d4_data_functions
 py -3 -m venv venv
 
 ```
@@ -12,8 +12,8 @@ py -3 -m venv venv
 **macOS/Linux**
           
 ```bash
-git clone https://github.com/liam-driver/d4_weekly_reports.git
-cd d4_weekly_reports
+git clone https://github.com/liam-driver/d4_data_functions.git
+cd d4_data_functions
 python3 -m venv venv
 
 ```
