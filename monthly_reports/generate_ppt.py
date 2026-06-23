@@ -278,21 +278,28 @@ def _add_kpi_boxes_horizontal(slide, prs, kpis, top=None, box_h=Inches(1.1), gap
         run3.font.color.rgb = C["dark"]
 
 
+def _kpis_from_totals(totals, metrics, kpi_count=None):
+    all_kpis = [(m, totals.get(m, {})) for m in metrics if totals.get(m)]
+    if kpi_count is not None:
+        return all_kpis[:max(1, min(4, int(kpi_count)))]
+    return all_kpis[:3]
+
+
 def _build_kpis_for(client, data_key='paid_data', kpi_count=None):
-    paid_total = client.get(data_key, {}).get('Total', {})
+    t = client.get(data_key, {}).get('Total', {})
     if client.get('account_type') == 'Lead Gen':
         all_kpis = [
-            ('Cost',            paid_total.get('Cost', {})),
-            ('Conversions',     paid_total.get('Conversions', {})),
-            ('CPA',             paid_total.get('CPA', {})),
-            ('Conversion Rate', paid_total.get('Conversion Rate', {})),
+            ('Cost',            t.get('Cost', {})),
+            ('Conversions',     t.get('Conversions', {})),
+            ('CPA',             t.get('CPA', {})),
+            ('Conversion Rate', t.get('Conversion Rate', {})),
         ]
     else:
         all_kpis = [
-            ('Cost',            paid_total.get('Cost', {})),
-            ('Revenue',         paid_total.get('Transaction Revenue', {})),
-            ('ROAS',            paid_total.get('ROAS', {})),
-            ('Conversion Rate', paid_total.get('Conversion Rate', {})),
+            ('Cost',            t.get('Cost', {})),
+            ('Revenue',         t.get('Transaction Revenue', {})),
+            ('ROAS',            t.get('ROAS', {})),
+            ('Conversion Rate', t.get('Conversion Rate', {})),
         ]
     if kpi_count is not None:
         return all_kpis[:max(1, min(4, int(kpi_count)))]
@@ -1271,23 +1278,36 @@ def _render_trend_slide(prs, client, trend, bullet_key='bullets'):
             slide_commentary(prs, title, summary, bullets)
 
     elif template in ('scorecard_vertical', 'scorecard_horizontal'):
-        # Scorecard as trend: build KPI boxes from top dimension values in mom data
+        comp        = graph.get('comparison', 'mom')
         data_source = graph.get('data_source', '')
-        dim_entry   = client.get('dimension_data', {}).get(data_source, {})
-        mom_data    = dim_entry.get('mom', {})
-        metric      = (graph.get('metrics') or [''])[0]
-        kpi_items = []
-        for dim_val, metric_dict in list(mom_data.items())[:4]:
-            if not isinstance(metric_dict, dict):
-                continue
-            vals = metric_dict.get(metric, {})
-            if isinstance(vals, dict):
-                kpi_items.append((str(dim_val), vals))
+        if data_source:
+            dim_entry      = client.get('dimension_data', {}).get(data_source, {})
+            cut_totals     = dim_entry.get(comp, {}).get('Total', {})
+            metrics        = graph.get('metrics') or []
+            kpi_items      = _kpis_from_totals(cut_totals, metrics, trend.get('kpi_count'))
+            kpi_date_label = _resolve_date_label_for_graph(client, graph)
+        else:
+            data_key       = 'paid_data_yoy' if comp == 'yoy' else 'paid_data_mom'
+            kpi_items      = _build_kpis_for(client, data_key, trend.get('kpi_count'))
+            if comp == 'yoy':
+                kpi_date_label = _fmt_date_label(
+                    client['start_date_string'],
+                    client['end_date_string'],
+                    _iso_to_dmy(client.get('compare_start_yoy', '')),
+                    _iso_to_dmy(client.get('compare_end_yoy', '')),
+                )
+            else:
+                kpi_date_label = _fmt_date_label(
+                    client['start_date_string'],
+                    client['end_date_string'],
+                    _iso_to_dmy(client.get('compare_start_mom', '')),
+                    _iso_to_dmy(client.get('compare_end_mom', '')),
+                )
         if kpi_items:
             if template == 'scorecard_horizontal':
-                slide_scorecard_horizontal(prs, title, summary, bullets, kpi_items, date_label)
+                slide_scorecard_horizontal(prs, title, summary, bullets, kpi_items, kpi_date_label)
             else:
-                slide_scorecard_vertical(prs, title, summary, bullets, kpi_items, date_label)
+                slide_scorecard_vertical(prs, title, summary, bullets, kpi_items, kpi_date_label)
         else:
             slide_commentary(prs, title, summary, bullets)
 

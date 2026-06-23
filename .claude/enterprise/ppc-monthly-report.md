@@ -202,9 +202,16 @@ For `table` and `table_commentary` templates: set `graph_type: "table"` in the g
 
 For `big_number` templates: use exactly 1 metric in the graph spec. The renderer extracts the headline value from that metric automatically.
 
-For `scorecard_vertical` and `scorecard_horizontal` as trend templates: use `graph_type: "comparison_bar"` or `"comparison_line"` and include the metrics you want as KPI boxes.
+For `scorecard_vertical` and `scorecard_horizontal` as trend templates: these slides show metric totals from the **Total row** of a dimension cut — identical logic to the overview scorecards but scoped to a specific channel or segment via filters. Before building this slide:
+1. **Fetch the data cut** — call `fetch_trend_data` with `date_range='previous_month'` and `filters` to scope to the channel or segment of interest (e.g. `[{"column": "Ad Channel", "op": "=", "value": "Paid Search"}]`). Use any dimension — the scorecard only uses the Total row. Record the `data_key` from the response.
+2. **Ask the user which comparison window** they want shown in the KPI boxes: **MoM** or **YoY**
+3. **Ask the user which metrics** they want as KPI boxes (1–4). Surface the metrics available in the `previous_period` or `previous_year` data from the fetch response.
+4. Set `graph.data_source` to the `data_key` returned by `fetch_trend_data`
+5. Set `graph.comparison` to `"mom"` or `"yoy"` per the user's choice
+6. Set `graph.metrics` to the user's chosen metric names exactly as they appear in the data
+7. **Skip the `preview_graph` call** — there is no chart to render. The renderer reads the Total row of the data cut and builds KPI boxes from the chosen metrics automatically.
 
-Then preview the graph inline by calling the `preview_graph` MCP tool:
+Then preview the graph inline by calling the `preview_graph` MCP tool (for all other template types):
 - `client_name`: the client name
 - `graph_spec`: the graph spec JSON object serialised as a string
 
