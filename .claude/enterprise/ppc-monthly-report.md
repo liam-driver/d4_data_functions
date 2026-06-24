@@ -113,9 +113,11 @@ Work through each trend slide one at a time. Do not move to the next slide until
 
 The user selects or proposes a trend topic — any channel, dimension, or combination worth exploring (e.g. "Paid Search", "Paid Search by Campaign", "Paid Social by Asset", "all channels by platform"). There is no distinction between channel-only and dimension-breakdown topics — all topics are resolved via `fetch_trend_data`.
 
-**2b. Define the data cut**
+**2b. Define the data cut — MANDATORY USER CONFIRMATION REQUIRED**
 
-Derive all fields from the agreed topic and render the data cut block for confirmation. Do not call `fetch_trend_data` until the user has explicitly confirmed.
+> **This step is a hard gate. You must render the data cut block and receive explicit confirmation from the user before calling `fetch_trend_data`. There are no exceptions — not even when the topic seems obvious or the fields appear self-evident. The user decides the data cut; you propose it.**
+
+Derive all fields from the agreed topic and render the data cut block below. Do not call `fetch_trend_data` until the user has explicitly confirmed.
 
 **Deriving the fields:**
 
@@ -137,17 +139,17 @@ Derive all fields from the agreed topic and render the data cut block for confir
   - All other channels → lead with Tier 1 (ROAS or CPA), then Tier 2 (e.g. CTR, CPC, Conversion Rate). Omit Tier 3/4 unless the topic specifically calls for volume.
   - If no channel is scoped (all channels) → lead with Tier 1 outcome metrics.
 
-**Render the block:**
+**Render the block — always render this, every time, for every slide:**
 
 ---
 
 **Data cut for: [topic]**
 
 **Breakdown dimension:**
-→ Pre-selected: **[dimension]**
+→ Proposed: **[dimension]**
 
 **Date range:**
-→ Pre-selected: **[date_range] — [human label, e.g. Previous Month — May 2026]**
+→ Proposed: **[date_range] — [human label, e.g. Previous Month — May 2026]**
 
 **Filters:**
 → [column] [op] **[value]**
@@ -155,11 +157,13 @@ Derive all fields from the agreed topic and render the data cut block for confir
 *(Omit this section if no filters apply)*
 
 **Metrics:**
-→ Pre-selected: **[Metric 1, Metric 2, ...]**
+→ Proposed: **[Metric 1, Metric 2, ...]**
+
+*Please confirm or correct any of the above. I won't fetch data until you say "confirmed" (or similar).*
 
 ---
 
-Wait for the user to confirm or correct. On any correction, re-render the full block with the updated values and wait again. Do not proceed until the user gives explicit confirmation (e.g. "confirmed", "looks good", "yes").
+Wait for the user to confirm or correct. On any correction, re-render the full block with the updated values and wait again. Do not proceed until the user gives explicit confirmation (e.g. "confirmed", "looks good", "yes"). **Do not infer confirmation from silence, topic agreement, or any other signal — only act on an explicit confirm.**
 
 **Discovering dimension values before filtering**
 
