@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 import argparse
+import re
 import shutil
 import json
 from calendar import monthrange
@@ -432,6 +433,18 @@ def _fmt_date_label(start, end, comp_start=None, comp_end=None):
     if comp_start and comp_end:
         label += f" vs {comp_start} - {comp_end}"
     return label + " | Ad Platform & GA4"
+
+
+def _strip_parenthetical(name):
+    return re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
+
+
+def _apply_footer_labels(prs, footer_label):
+    for slide in prs.slides:
+        for ph in slide.placeholders:
+            if ph.top > prs.slide_height * 0.7 and ph.left < Inches(2):
+                ph.text = footer_label
+                break
 
 
 def slide_chart_commentary(prs, title, summary, bullets, chart_path, date_label=None):
@@ -1432,6 +1445,10 @@ def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
     all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json) if plan_json else ([], None, None)
     if all_tasks:
         slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
+
+    month_year   = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B %Y")
+    footer_label = f"{_strip_parenthetical(client['name'])} | {month_year}"
+    _apply_footer_labels(prs, footer_label)
 
     prs.save(output_path)
     print(f"Saved {output_path} with {len(prs.slides)} slide(s)")
