@@ -314,9 +314,54 @@ def send_weekly_report_html(client_name: str, html_body: str) -> str:
 
 
 @mcp.tool()
-def fetch_trend_data(client_name: str, dimension: str, filters: str = "", time_dimension: str = "", date_range: str = "mtd") -> str:
-    """Fetch Previous Period, Previous Year, and timeseries data for a Trend Topic broken down
-    by dimension, with optional pre-aggregation scope filters.
+def fetch_custom_overview_data(client_name: str, start_date: str, end_date: str) -> str:
+    """Fetch overview data for a Custom Date Window and append it to the cached monthly JSON.
+
+    Runs both comparison passes for the window:
+      - Same-length prior period (MoM-equivalent)
+      - Same window one year prior (YoY)
+
+    Results are stored under paid_data_custom_{start_date}_{end_date} with mom/yoy sub-keys.
+    Matching llm_data_* and overall_data_* keys are also written. Resolved date strings are
+    stored so the PPTX generator can build date labels without recomputing them.
+
+    client_name: the client name as it appears in config.json.
+    start_date:  Custom Date Window start in YYYY-MM-DD format.
+    end_date:    Custom Date Window end in YYYY-MM-DD format.
+
+    Returns a JSON object listing the stored data keys and resolved date strings."""
+    _validate_client_name(client_name)
+    script = os.path.join(PROJECT_ROOT, "monthly_reports", "main.py")
+    result = subprocess.run(
+        [sys.executable, script, "--client", client_name,
+         "--start-date", start_date, "--end-date", end_date],
+        capture_output=True, text=True, cwd=PROJECT_ROOT
+    )
+    if result.returncode != 0:
+        raise Exception(f"Custom overview fetch failed: {result.stderr}")
+    data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
+    with open(data_path, "r", encoding="utf-8") as f:
+        client = json.load(f)
+    window_prefix = f"custom_{start_date}_{end_date}"
+    response = {
+        "paid_data_key":    f"paid_data_{window_prefix}",
+        "llm_data_key":     f"llm_data_{window_prefix}",
+        "overall_data_key": f"overall_data_{window_prefix}",
+        "start_date_string":         client.get(f"{window_prefix}_start_date_string"),
+        "end_date_string":           client.get(f"{window_prefix}_end_date_string"),
+        "compare_start_mom_string":  client.get(f"{window_prefix}_compare_start_mom_string"),
+        "compare_end_mom_string":    client.get(f"{window_prefix}_compare_end_mom_string"),
+        "compare_start_yoy_string":  client.get(f"{window_prefix}_compare_start_yoy_string"),
+        "compare_end_yoy_string":    client.get(f"{window_prefix}_compare_end_yoy_string"),
+    }
+    return json.dumps(response, ensure_ascii=False)
+
+
+@mcp.tool()
+def fetch_trend_data(client_name: str, dimension: str, filters: str = "", time_dimension: str = "",
+                     date_range: str = "mtd", start_date: str = "", end_date: str = "") -> str:
+    """Fetch Previous Period, Previous Year, and timeseries data for a Trend Topic (Data Cut)
+    broken down by dimension, with optional pre-aggregation scope filters.
     Use this once per trend slide during the slide-by-slide workflow.
 
     client_name: the client name as it appears in config.json.
@@ -332,9 +377,13 @@ def fetch_trend_data(client_name: str, dimension: str, filters: str = "", time_d
     time_dimension: column to group the timeseries by. One of: 'Week number (ISO)', 'Month', 'Year', 'Date'.
                     Leave empty to use the recommended default for the selected date_range.
                     The graph spec's dimensions.x must match the time_dimension returned in the response.
-    date_range: the date window for this slide. One of: 'previous_7_days', 'mtd' (default), 'previous_month', 'ytd', 'last_90_days'.
-                Controls the current period, previous period, and previous year windows — all with 2-day GA4 lag applied.
-                'ytd' omits the previous period comparison.
+    date_range: Templated Date Range for this slide. One of: 'previous_7_days', 'mtd' (default),
+                'previous_month', 'ytd', 'last_90_days'. Controls the current period, previous period,
+                and previous year windows — all with 2-day GA4 lag applied. 'ytd' omits the previous
+                period comparison. Ignored when start_date and end_date are both provided.
+    start_date: Custom Date Window start (YYYY-MM-DD). When provided with end_date, overrides date_range.
+                Comparison windows are derived as same-length prior period + YoY.
+    end_date:   Custom Date Window end (YYYY-MM-DD). See start_date.
 
     Persists the result to dimension_data[data_key] in the cached monthly JSON so the graph renderer
     can access it at PPTX build time.
@@ -349,7 +398,8 @@ def fetch_trend_data(client_name: str, dimension: str, filters: str = "", time_d
     from monthly_reports.dimension_cuts import fetch_trend_data as _fetch
     result = _fetch(
         client_name, dimension,
-        parsed_filters, time_dimension or None, date_range
+        parsed_filters, time_dimension or None, date_range,
+        start_date=start_date or None, end_date=end_date or None,
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -449,13 +499,13 @@ def preview_graph(client_name: str, graph_spec: str) -> list:
 @mcp.tool()
 def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     """Generate the monthly PPTX for a client from pre-generated slide content.
-    slide_content must be a JSON string with keys: overview (summary, bullets,
-    bullets_presentation), mtd_overview (summary, bullets, bullets_presentation —
-    omit if MTD data was unavailable), trends (list of title/summary/bullets/
-    bullets_presentation/graph objects), and actions (list of task/summary/status/
-    graph objects). Always produces two decks: a detailed deck (full metric bullets)
-    and a presentation deck (narrative-only bullets, data-free). Returns a JSON
-    object with 'path', 'download_url', 'presentation_path', and
+    slide_content must be a JSON string with keys: overviews (list of overview slide
+    items — each with data_key, section_title, title, summary, bullets,
+    bullets_presentation, template, kpi_count, comparison), trends (list of
+    title/summary/bullets/bullets_presentation/graph objects), and actions (list of
+    task/summary/status objects). Always produces two decks: a detailed deck (full
+    metric bullets) and a presentation deck (narrative-only bullets, data-free).
+    Returns a JSON object with 'path', 'download_url', 'presentation_path', and
     'presentation_download_url' — share both download URLs with the user."""
     _validate_client_name(client_name)
     from monthly_reports.generate_ppt import generate_ppt

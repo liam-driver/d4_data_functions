@@ -1,0 +1,5 @@
+# Unified `overviews` list in slide_content schema
+
+The `slide_content` JSON passed to `generate_monthly_pptx` previously used two fixed top-level keys — `overview` (previous calendar month) and `mtd_overview` (month-to-date) — hardcoded in the generator and the monthly report skill. To support custom date windows in overview slides without adding further special-cased keys, we replaced both with a single `overviews: []` list. Each item carries `data_key`, `section_title`, `title`, `summary`, `bullets`, `bullets_presentation`, `template`, `kpi_count`, and `comparison`. The generator loops over the list rather than reading fixed keys.
+
+The backwards-compatible alternative was to add a `custom_overviews: []` list alongside the existing fixed keys. We rejected it because it would have left three different shapes of overview in the schema with no principled distinction, and the fixed keys were already causing friction (overview comparison choice was hardcoded to `mom`, requiring workarounds). Backwards compatibility was not a constraint — no past-run `slide_content` payloads are stored or replayed.

@@ -25,9 +25,42 @@ _DEFAULT_TIME_DIMENSION = {
 }
 
 
-def _resolve_date_windows(date_range: str) -> dict:
-    """Compute current, previous-period, and previous-year windows for a date_range label.
-    All windows apply the 2-day GA4 lag (effective_today = today - 2)."""
+def _resolve_date_windows(date_range: str, start_date_str: str = None, end_date_str: str = None) -> dict:
+    """Compute current, previous-period, and previous-year windows.
+
+    When start_date_str and end_date_str are both provided (Custom Date Window), the preset
+    lookup is skipped. The same-length prior period is used as the MoM-equivalent comparison,
+    and dates minus one year as YoY. default_time_dimension is derived from range length:
+    ≤14 days → Date, ≤90 days → Week number (ISO), else → Month.
+
+    Otherwise date_range must be one of the Templated Date Ranges and the 2-day GA4 lag is applied.
+    """
+    if start_date_str and end_date_str:
+        current_start = pd.Timestamp(start_date_str).normalize()
+        current_end   = pd.Timestamp(end_date_str).normalize()
+        num_days      = (current_end - current_start).days + 1
+        prev_end      = (current_start - pd.DateOffset(days=1)).normalize()
+        prev_start    = (prev_end - pd.DateOffset(days=num_days - 1)).normalize()
+        yoy_start     = (current_start - pd.DateOffset(years=1)).normalize()
+        yoy_end       = (current_end   - pd.DateOffset(years=1)).normalize()
+        if num_days <= 14:
+            default_time_dimension = 'Date'
+        elif num_days <= 90:
+            default_time_dimension = 'Week number (ISO)'
+        else:
+            default_time_dimension = 'Month'
+        return {
+            'current_start':          current_start,
+            'current_end':            current_end,
+            'prev_start':             prev_start,
+            'prev_end':               prev_end,
+            'yoy_start':              yoy_start,
+            'yoy_end':                yoy_end,
+            'default_time_dimension': default_time_dimension,
+            'label':                  f"{start_date_str} – {end_date_str}",
+            'prev_period_available':  True,
+        }
+
     if date_range not in _VALID_DATE_RANGES:
         raise ValueError(
             f"Unknown date_range '{date_range}'. Must be one of: {', '.join(_VALID_DATE_RANGES)}"
@@ -382,25 +415,30 @@ def get_dimension_timeseries(client, dimension_column, filters=None, time_dimens
     return result
 
 
-def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, date_range='mtd'):
+def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, date_range='mtd',
+                     start_date: str = None, end_date: str = None):
     """
-    Fetches Previous Period, Previous Year, and timeseries data for a Trend Topic broken down
-    by dimension, with optional pre-aggregation scope filters. Persists to dimension_data[data_key]
-    in the cached monthly JSON.
+    Fetches Previous Period, Previous Year, and timeseries data for a Trend Topic (Data Cut)
+    broken down by dimension, with optional pre-aggregation scope filters. Persists to
+    dimension_data[data_key] in the cached monthly JSON.
 
     filters: list of {column, op, value} dicts applied to raw rows before grouping. Any column
              from the raw data is supported. Operators: =, !=, contains, not_contains, >, <, >=, <=.
              Value can be a string, number, or list (for = and !=).
     date_range: one of 'previous_7_days', 'mtd', 'ytd', 'last_90_days' (default 'mtd').
+                Ignored when start_date and end_date are both provided.
+    start_date: ISO date string (YYYY-MM-DD). When provided together with end_date, defines a
+                Custom Date Window that overrides date_range.
+    end_date:   ISO date string (YYYY-MM-DD). See start_date.
     time_dimension: column to group the timeseries by ('Week number (ISO)', 'Month', 'Year', 'Date').
-                    Defaults to the recommended dimension for the selected date_range if omitted.
+                    Defaults to the recommended dimension for the selected range if omitted.
     Returns the full envelope dict.
     """
     data_path = os.path.join(PROJECT_ROOT, 'storage', f'{client_name}_monthly_data.json')
     with open(data_path, 'r', encoding='utf-8') as f:
         client = json.load(f)
 
-    windows = _resolve_date_windows(date_range)
+    windows = _resolve_date_windows(date_range, start_date_str=start_date, end_date_str=end_date)
     effective_time_dimension = time_dimension or windows['default_time_dimension']
 
     # Override client date window with the resolved range
@@ -444,7 +482,9 @@ def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, 
     else:
         data_mom_timeseries = {}
 
-    data_key = _build_data_key(dimension, filters, date_range)
+    # Use a custom date component in the cache key when a Custom Date Window is provided
+    date_key_component = f"custom_{start_date}_{end_date}" if (start_date and end_date) else date_range
+    data_key = _build_data_key(dimension, filters, date_key_component)
 
     fmt = '%d/%m/%Y'
     resolved_dates = {
@@ -460,7 +500,7 @@ def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, 
     if not isinstance(client.get('dimension_data'), dict):
         client['dimension_data'] = {}
     client['dimension_data'][data_key] = {
-        'date_range':      date_range,
+        'date_range':      date_key_component,
         'time_dimension':  effective_time_dimension,
         'mom':             data_previous_period,
         'yoy':             data_previous_year,
@@ -475,16 +515,16 @@ def fetch_trend_data(client_name, dimension, filters=None, time_dimension=None, 
         json.dump(client, f, ensure_ascii=False, indent=2, cls=TimestampEncoder)
 
     return {
-        'dimension':             dimension,
-        'filters':               filters or [],
-        'date_range':            date_range,
-        'date_range_label':      windows['label'],
-        'data_key':              data_key,
-        'time_dimension':        effective_time_dimension,
+        'dimension':              dimension,
+        'filters':                filters or [],
+        'date_range':             date_key_component,
+        'date_range_label':       windows['label'],
+        'data_key':               data_key,
+        'time_dimension':         effective_time_dimension,
         'default_time_dimension': windows['default_time_dimension'],
-        'prev_period_available': windows['prev_period_available'],
-        'resolved_dates':        resolved_dates,
-        'previous_period':       data_previous_period,
-        'previous_year':         data_previous_year,
-        'timeseries':            data_timeseries,
+        'prev_period_available':  windows['prev_period_available'],
+        'resolved_dates':         resolved_dates,
+        'previous_period':        data_previous_period,
+        'previous_year':          data_previous_year,
+        'timeseries':             data_timeseries,
     }

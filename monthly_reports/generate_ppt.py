@@ -1230,6 +1230,74 @@ def _extract_hero_metric(client, graph):
     )
 
 
+def _kpis_for_overview(client, item):
+    """Resolve KPI boxes for an entry in sc['overviews'], handling all data_key shapes.
+
+    data_key = "paid_data"              → flat paid_data_{comparison} keys
+    data_key = "paid_data_mtd"          → flat paid_data_mtd (always YoY comparison)
+    data_key = "paid_data_custom_X_Y"   → nested {"mom": ..., "yoy": ...} under that key
+    """
+    data_key   = item['data_key']
+    comparison = item.get('comparison', 'mom')
+    kpi_count  = item.get('kpi_count')
+
+    if data_key == 'paid_data':
+        return _build_kpis_for(client, f'paid_data_{comparison}', kpi_count)
+    elif data_key == 'paid_data_mtd':
+        return _build_kpis_for(client, 'paid_data_mtd', kpi_count)
+    else:
+        # Custom Date Window: data is nested {"mom": ..., "yoy": ...}
+        nested = client.get(data_key, {})
+        comp_data = nested.get(comparison, nested)
+        client['__overview_kpi_temp__'] = comp_data
+        kpis = _build_kpis_for(client, '__overview_kpi_temp__', kpi_count)
+        del client['__overview_kpi_temp__']
+        return kpis
+
+
+def _resolve_overview_date_label(client, item):
+    """Build the date label string for an overview slide from sc['overviews'].
+
+    Prefers explicit date strings on the item; falls back to client dict lookups by data_key.
+    """
+    data_key   = item['data_key']
+    comparison = item.get('comparison', 'mom')
+
+    if item.get('start_date_string') and item.get('end_date_string'):
+        return _fmt_date_label(
+            item['start_date_string'], item['end_date_string'],
+            item.get('compare_start_string'), item.get('compare_end_string'),
+        )
+
+    if data_key == 'paid_data':
+        start = client.get('start_date_string', '')
+        end   = client.get('end_date_string', '')
+        if comparison == 'yoy':
+            comp_start = _iso_to_dmy(client.get('compare_start_yoy', ''))
+            comp_end   = _iso_to_dmy(client.get('compare_end_yoy', ''))
+        else:
+            comp_start = _iso_to_dmy(client.get('compare_start_mom', ''))
+            comp_end   = _iso_to_dmy(client.get('compare_end_mom', ''))
+    elif data_key == 'paid_data_mtd':
+        start      = client.get('mtd_start_date_string', '')
+        end        = client.get('mtd_end_date_string', '')
+        comp_start = _iso_to_dmy(client.get('compare_start_mtd', ''))
+        comp_end   = _iso_to_dmy(client.get('compare_end_mtd', ''))
+    else:
+        # Custom Date Window — keys stored by run_custom_overview_fetch under window_prefix
+        window_prefix = data_key[len('paid_data_'):]   # "custom_YYYY-MM-DD_YYYY-MM-DD"
+        start = client.get(f'{window_prefix}_start_date_string', '')
+        end   = client.get(f'{window_prefix}_end_date_string', '')
+        if comparison == 'yoy':
+            comp_start = client.get(f'{window_prefix}_compare_start_yoy_string', '')
+            comp_end   = client.get(f'{window_prefix}_compare_end_yoy_string', '')
+        else:
+            comp_start = client.get(f'{window_prefix}_compare_start_mom_string', '')
+            comp_end   = client.get(f'{window_prefix}_compare_end_mom_string', '')
+
+    return _fmt_date_label(start, end, comp_start, comp_end)
+
+
 def _render_overview_slide(prs, client, template, title, summary, bullets, kpis, date_label):
     if template == 'scorecard_horizontal':
         slide_scorecard_horizontal(prs, title, summary, bullets, kpis, date_label)
@@ -1336,48 +1404,20 @@ def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
     slide_cover(prs, f'{client["name"]} Monthly Deck')
     slide_section_separator(prs, 'Paid Media', variant='navy')
 
-    # ── Performance Overview ──────────────────────────────────────────────────
-    overview_template = sc['overview'].get('template', 'scorecard_vertical')
-    overview_kpi_count = sc['overview'].get('kpi_count', None)
-    kpis = _build_kpis_for(client, 'paid_data', overview_kpi_count)
-    overview_date_label = _fmt_date_label(
-        client['start_date_string'],
-        client['end_date_string'],
-        _iso_to_dmy(client.get('compare_start_mom', '')),
-        _iso_to_dmy(client.get('compare_end_mom', '')),
-    )
-    slide_section_separator(prs, f'{prev_month} Performance Overview', variant='gold')
-    _render_overview_slide(
-        prs, client, overview_template,
-        title=f'{prev_month} Performance',
-        summary=sc['overview']['summary'],
-        bullets=sc['overview'].get(bullet_key, sc['overview']['bullets']),
-        kpis=kpis,
-        date_label=overview_date_label,
-    )
-
-    # ── MTD Overview ─────────────────────────────────────────────────────────
-    mtd_start_str = client.get('mtd_start_date_string')
-    if mtd_start_str and sc.get('mtd_overview'):
-        mtd_month = datetime.strptime(mtd_start_str, "%d/%m/%Y").strftime("%B")
-        mtd_template = sc['mtd_overview'].get('template', 'scorecard_vertical')
-        mtd_kpi_count = sc['mtd_overview'].get('kpi_count', None)
-        mtd_kpis = _build_kpis_for(client, 'paid_data_mtd', mtd_kpi_count)
-        mtd_date_label = _fmt_date_label(
-            client['mtd_start_date_string'],
-            client['mtd_end_date_string'],
-            _iso_to_dmy(client.get('compare_start_mtd', '')),
-            _iso_to_dmy(client.get('compare_end_mtd', '')),
-        )
-        slide_section_separator(prs, f'{mtd_month} Performance Overview', variant='gold')
-        _render_overview_slide(
-            prs, client, mtd_template,
-            title=f'{mtd_month} Performance',
-            summary=sc['mtd_overview']['summary'],
-            bullets=sc['mtd_overview'].get(bullet_key, sc['mtd_overview']['bullets']),
-            kpis=mtd_kpis,
-            date_label=mtd_date_label,
-        )
+    # ── Overview Slides ───────────────────────────────────────────────────────
+    # Driven by sc['overviews']: a list of items each specifying data_key, section_title,
+    # title, template, comparison, kpi_count, summary, and bullets.
+    for item in sc.get('overviews', []):
+        template     = item.get('template', 'scorecard_vertical')
+        kpis         = _kpis_for_overview(client, item)
+        date_label   = _resolve_overview_date_label(client, item)
+        section_title = item.get('section_title', 'Performance Overview')
+        title        = item.get('title', 'Performance')
+        summary      = item.get('summary', '')
+        bullets      = item.get(bullet_key, item.get('bullets', []))
+        slide_section_separator(prs, section_title, variant='gold')
+        _render_overview_slide(prs, client, template, title=title, summary=summary,
+                               bullets=bullets, kpis=kpis, date_label=date_label)
 
     # ── Trend Slides ─────────────────────────────────────────────────────────
     slide_section_separator(prs, 'Top Level Trends', variant='gold')

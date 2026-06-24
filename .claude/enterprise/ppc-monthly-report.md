@@ -23,13 +23,13 @@ Call `fetch_monthly_client_data` with the client name. This returns:
 
 The reporting period for the main deck is the previous full calendar month (e.g. if today is May 2026, the period is 01/04/2026 – 30/04/2026). The response also includes a `plan` key containing the client's 90-day plan tasks fetched directly from Google Sheets. Client context — background, goals, KPIs, seasonality, historical context, and `slack_channel_id` — is stored in the project documents for this client.
 
-**1b. Confirm scorecard comparison periods**
+**1b. Confirm overview slides and comparison periods**
 
-Before fetching Slack context or rendering the preview, ask the user which comparison period they want shown in the scorecard KPI boxes for each overview slide. Present the choice as two simple questions:
+Before fetching Slack context or rendering the preview, ask the user which overview slides they want and which comparison period to use for each scorecard. Present this as a single confirmation block:
 
 ---
 
-**Scorecard comparison — please confirm before we continue**
+**Overview slides — please confirm before we continue**
 
 **Previous Month Performance Overview** — which comparison do you want in the scorecards?
 - **MoM** — vs. the calendar month before [previous month]
@@ -39,11 +39,20 @@ Before fetching Slack context or rendering the preview, ask the user which compa
 - **MoM** — vs. the same days last month
 - **YoY** — vs. the same days last year *(default)*
 
+**Custom Date Windows** — do you need any overview slides covering a specific date range (e.g. a campaign flight, a promotional period, or a multi-month window)?
+- **No** — standard windows only *(default)*
+- **Yes** — provide start and end dates for each custom window
+
 ---
 
-Wait for the user to confirm both choices before proceeding. Record the confirmed values as `overview_comparison` (`"mom"` or `"yoy"`) and `mtd_comparison` (`"mom"` or `"yoy"`). Use these values throughout the rest of the workflow — in commentary framing, initial preview data selection, and the final JSON output.
+Wait for the user to confirm all choices before proceeding. Record:
+- `overview_comparison` (`"mom"` or `"yoy"`) for the previous-month overview
+- `mtd_comparison` (`"mom"` or `"yoy"`) for the MTD overview
+- `custom_windows`: list of `{start_date, end_date}` objects (may be empty)
 
 If `mtd.start_date` is not present in the fetch response, skip the MTD question entirely.
+
+If the user requests any Custom Date Windows, call `fetch_custom_overview_data` for each window (after the baseline fetch, before rendering the preview). The tool returns the stored data keys and resolved date strings — record these so you can populate the overviews list in the final JSON.
 
 **1c. Fetch Slack context**
 
@@ -57,9 +66,10 @@ If `slack_channel_id` is not available, skip and note no Slack context is availa
 
 **1d. Render the initial preview**
 
-Using the baseline data, confirmed comparison choices, and Slack context, render the **Initial Preview** in chat using the **Initial Preview Format** section below. Use `overview_comparison` to frame the previous-month scorecard data and `mtd_comparison` to frame the current-month scorecard data. This contains:
+Using the baseline data, confirmed comparison choices, any fetched Custom Date Window data, and Slack context, render the **Initial Preview** in chat using the **Initial Preview Format** section below. Use `overview_comparison` to frame the previous-month scorecard data and `mtd_comparison` to frame the current-month scorecard data. This contains:
 - **{Previous Month} Performance Overview** — fully populated with real scorecard data and commentary using `mom` and `yoy` data
 - **{Current Month} Performance Overview** — fully populated with real scorecard data and commentary using `mtd` data compared to the same days last year. Only included if `mtd.start_date` is present in the fetch response.
+- **Custom Date Window Overviews** — one per confirmed custom window, fully populated from the `fetch_custom_overview_data` response. Only included when custom windows were requested.
 - **Top Level Trends** — draft suggestions only (not full slides), each a short hypothesis about a potential trend topic derived from the baseline timeseries and Slack signals
 - **Actions** — fully populated from the 90-day plan
 - **Gantt** — auto-generated label only
@@ -235,7 +245,7 @@ Slide is locked in. Ask the user if they want to add another trend topic or move
 
 Once the user signals all trend slides are done, before rendering the Confirmation Summary, perform a silent em dash audit:
 
-- Scan every generated string — overview summary, overview bullets, MTD overview summary, MTD overview bullets, every trend summary, every trend bullet, and every action summary — for em dashes (—).
+- Scan every generated string — every overview summary, every overview bullets list, every trend summary, every trend bullet, and every action summary — for em dashes (—).
 - Replace any found with a comma, conjunction, or split into two sentences as appropriate.
 - Do not surface this audit to the user. Apply fixes silently.
 
@@ -364,26 +374,16 @@ Render this after the baseline fetch and Slack context are loaded. The Trends se
 
 ---
 
-**Section: [Previous Month] Performance Overview**
+*(Repeat the block below for each item in the overviews list: previous-month, MTD if available, then any Custom Date Windows.)*
 
-**Top Level View** *(Scorecard + Commentary)*
-[overview.summary]
+**Section: [item.section_title]**
+**Period:** [item.start_date_string] – [item.end_date_string]
+
+**[item.title]** *(Scorecard + Commentary)*
+[item.summary]
 - [bullet 1]
 - [bullet 2]
 - ...
-
----
-
-**Section: [Current Month] Performance Overview**
-**MTD Period:** [mtd.start_date] – [mtd.end_date] vs same days last year
-
-**Month to Date View** *(Scorecard + Commentary)*
-[mtd_overview.summary]
-- [bullet 1]
-- [bullet 2]
-- ...
-
-*(Omit this section if mtd.start_date is not present in the fetch response.)*
 
 ---
 
@@ -440,11 +440,8 @@ Render this once all trend slides are confirmed, before PPTX generation.
 **[Client Name] Monthly Deck — Confirmation Summary**
 **Period:** [start_date] – [end_date]
 
-**[Previous Month] Performance Overview**
-[overview.summary — one line]
-
-**[Current Month] Performance Overview** *(if present)*
-[mtd_overview.summary — one line]
+*(One line per item in the overviews list)*
+**[item.section_title]** — [item.summary]
 
 **Top Level Trends**
 1. **[trend.title]** | `[graph_type]` · [metrics]
@@ -522,25 +519,25 @@ Generate a JSON object exactly matching this structure before calling `generate_
 
 ```json
 {
-  "overview": {
-    "summary": "string — single headline sentence for the previous-month overview slide",
-    "bullets": [{"point": "string"}],
-    "template": "string — one of the valid slide templates. Default: \"scorecard_vertical\". Omit to use the default.",
-    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default.",
-    "comparison": "string — \"mom\" or \"yoy\". Confirmed with the user in step 1b. Controls which comparison period is shown in the scorecard KPI boxes."
-  },
-  "mtd_overview": {
-    "summary": "string — single headline sentence for the current-month TD slide (15 words max)",
-    "bullets": [{"point": "string"}],
-    "template": "string — one of the valid slide templates. Default: \"scorecard_vertical\". Omit to use the default.",
-    "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default.",
-    "comparison": "string — \"mom\" or \"yoy\". Confirmed with the user in step 1b. Controls which comparison period is shown in the MTD scorecard KPI boxes. Default: \"yoy\"."
-  },
+  "overviews": [
+    {
+      "data_key": "string — identifies which data to use for KPI boxes. Use:\n  \"paid_data\" for the standard previous-month overview\n  \"paid_data_mtd\" for the MTD overview\n  \"paid_data_custom_YYYY-MM-DD_YYYY-MM-DD\" for a Custom Date Window",
+      "section_title": "string — title for the gold section separator slide (e.g. 'April Performance Overview')",
+      "title": "string — title for the scorecard content slide (e.g. 'April Performance')",
+      "summary": "string — single headline sentence, 15 words maximum",
+      "bullets": [{"point": "string"}],
+      "bullets_presentation": [{"point": "string"}],
+      "template": "string — one of the valid slide templates. Default: \"scorecard_vertical\". Omit to use the default.",
+      "kpi_count": "integer — number of KPI boxes to show (1–4). Default: 3. Omit to use the default.",
+      "comparison": "string — \"mom\" or \"yoy\". Controls which comparison period is shown in the scorecard KPI boxes and the date label."
+    }
+  ],
   "trends": [
     {
       "title": "string — short trend label (e.g. 'Paid Search ROAS Recovery')",
       "summary": "string — 15 words maximum, hard limit. Lead with direction. One data point only if it adds something a direction word cannot.",
       "bullets": [{"point": "string"}],
+      "bullets_presentation": [{"point": "string"}],
       "template": "string — one of the valid slide templates. Default: \"chart_commentary\". Confirmed with the user in step 2e.",
       "graph": {
         "graph_type": "string — one of the valid graph_types",
@@ -577,16 +574,21 @@ Generate a JSON object exactly matching this structure before calling `generate_
 ```
 
 **Field constraints:**
-- `overview.bullets`: 3–6 items
-- `overview.template`: one of `scorecard_vertical`, `scorecard_horizontal`, `chart_commentary`. Defaults to `scorecard_vertical` if omitted.
-- `overview.kpi_count`: integer 1–4. Defaults to 3 if omitted. Only applies to scorecard templates.
-- `overview.comparison`: `"mom"` or `"yoy"`. Required — use the value confirmed in step 1b.
-- `mtd_overview.bullets`: 3–6 items. Include `mtd_overview` whenever `mtd.start_date` was present in the fetch response — omit the key entirely if MTD data was not available.
-- `mtd_overview.template` / `mtd_overview.kpi_count`: same rules as `overview`.
-- `mtd_overview.comparison`: `"mom"` or `"yoy"`. Required when `mtd_overview` is present — use the value confirmed in step 1b. Defaults to `"yoy"` if the user did not specify.
-- `trends[].bullets`: 1–4 items per trend
-- `trends[].template`: one of the 7 valid slide templates. Defaults to `chart_commentary` if omitted.
-- `trends[].graph`: required on every trend — never `null`. For `table` and `table_commentary` templates, set `graph_type: "table_comparison"` (default) or `"table"` (current period only), and `style: "distribution"`. Optionally include `sort_by`, `sort_dir`, `row_filters`, and `show_totals` — confirm these with the user during the preview iteration loop before locking the spec.
+
+`overviews[]` — always a list (never the old `overview` / `mtd_overview` keys):
+- Include one item for the previous-month overview, one for MTD (if `mtd.start_date` was present), then one per Custom Date Window in the order confirmed with the user.
+- `data_key`:
+  - Previous-month: `"paid_data"` — KPIs read from `paid_data_{comparison}` in the cached JSON.
+  - MTD: `"paid_data_mtd"` — KPIs read from `paid_data_mtd` (always YoY comparison; set `comparison: "yoy"`).
+  - Custom Date Window: `"paid_data_custom_YYYY-MM-DD_YYYY-MM-DD"` — use the `paid_data_key` returned by `fetch_custom_overview_data` verbatim.
+- `comparison`: `"mom"` or `"yoy"`. Required on every item. Use the value confirmed in step 1b for standard windows; use the user's choice (or `"mom"`) for Custom Date Windows.
+- `bullets`: 3–6 items per overview.
+- `template`: one of `scorecard_vertical`, `scorecard_horizontal`, `chart_commentary`. Defaults to `scorecard_vertical` if omitted.
+- `kpi_count`: integer 1–4. Defaults to 3 if omitted. Only applies to scorecard templates.
+
+`trends[].bullets`: 1–4 items per trend.
+`trends[].template`: one of the 7 valid slide templates. Defaults to `chart_commentary` if omitted.
+`trends[].graph`: required on every trend — never `null`. For `table` and `table_commentary` templates, set `graph_type: "table_comparison"` (default) or `"table"` (current period only), and `style: "distribution"`. Optionally include `sort_by`, `sort_dir`, `row_filters`, and `show_totals` — confirm these with the user during the preview iteration loop before locking the spec.
 
 ---
 

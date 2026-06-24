@@ -152,9 +152,86 @@ def run_monthly_report(client_name, data_only=False):
     return output_path
 
 
+def run_custom_overview_fetch(client_name, start_date_str, end_date_str):
+    """Fetch overview data for a Custom Date Window and append it to the cached monthly JSON.
+
+    Runs both comparison passes for the window — same-length prior period (MoM-equivalent)
+    and YoY — and stores results nested under paid_data_custom_{start}_{end} with mom/yoy
+    sub-keys (matching the existing paid_data_mom/paid_data_yoy pattern but nested).
+    Also persists resolved date strings so the PPTX generator can build date labels.
+    """
+    data_path = f"storage/{client_name}_monthly_data.json"
+    with open(data_path, "r", encoding="utf-8") as f:
+        client = json.load(f)
+
+    with open("storage/config.json", "r") as f:
+        clients = json.load(f)
+    config = next((c for c in clients if c["name"] == client_name), None)
+    if config is None:
+        raise ValueError(f"Client '{client_name}' not found in config")
+    for k, v in config.items():
+        if k not in client:
+            client[k] = v
+
+    current_start = pd.Timestamp(start_date_str).normalize()
+    current_end   = pd.Timestamp(end_date_str).normalize()
+    num_days      = (current_end - current_start).days + 1
+    prev_end      = (current_start - pd.DateOffset(days=1)).normalize()
+    prev_start    = (prev_end - pd.DateOffset(days=num_days - 1)).normalize()
+    yoy_start     = (current_start - pd.DateOffset(years=1)).normalize()
+    yoy_end       = (current_end   - pd.DateOffset(years=1)).normalize()
+
+    account_type = client.get("account_type", "Ecommerce")
+    paid_type    = "paid_lead_gen"  if account_type == "Lead Gen" else "paid_ecommerce"
+    llm_type     = "llm_lead_gen"  if account_type == "Lead Gen" else "llm_ecommerce"
+    overall_type = "overall_lead_gen" if account_type == "Lead Gen" else "overall_ecommerce"
+
+    client["start_date"] = current_start
+    client["end_date"]   = current_end
+
+    # MoM-equivalent pass (same-length prior period)
+    client["compare_start_date"] = prev_start
+    client["compare_end_date"]   = prev_end
+    mom_paid    = get_funnel_data(client, paid_type)
+    mom_llm     = get_funnel_data(client, llm_type)
+    mom_overall = get_funnel_data(client, overall_type)
+
+    # YoY pass
+    client["compare_start_date"] = yoy_start
+    client["compare_end_date"]   = yoy_end
+    yoy_paid    = get_funnel_data(client, paid_type)
+    yoy_llm     = get_funnel_data(client, llm_type)
+    yoy_overall = get_funnel_data(client, overall_type)
+
+    window_prefix = f"custom_{start_date_str}_{end_date_str}"
+    client[f"paid_data_{window_prefix}"]    = {"mom": mom_paid,    "yoy": yoy_paid}
+    client[f"llm_data_{window_prefix}"]     = {"mom": mom_llm,     "yoy": yoy_llm}
+    client[f"overall_data_{window_prefix}"] = {"mom": mom_overall, "yoy": yoy_overall}
+
+    fmt = "%d/%m/%Y"
+    client[f"{window_prefix}_start_date_string"]         = current_start.strftime(fmt)
+    client[f"{window_prefix}_end_date_string"]           = current_end.strftime(fmt)
+    client[f"{window_prefix}_compare_start_mom_string"]  = prev_start.strftime(fmt)
+    client[f"{window_prefix}_compare_end_mom_string"]    = prev_end.strftime(fmt)
+    client[f"{window_prefix}_compare_start_yoy_string"]  = yoy_start.strftime(fmt)
+    client[f"{window_prefix}_compare_end_yoy_string"]    = yoy_end.strftime(fmt)
+
+    with open(data_path, "w", encoding="utf-8") as f:
+        json.dump(client, f, ensure_ascii=False, indent=2, cls=TimestampEncoder)
+    print(f"Custom overview data written to {data_path}")
+    return data_path
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", required=True, help="Client name as it appears in config.json")
     parser.add_argument("--data-only", action="store_true", help="Fetch and save data only, skip PPT generation")
+    parser.add_argument("--start-date", default=None, help="Custom Date Window start (YYYY-MM-DD). Requires --end-date.")
+    parser.add_argument("--end-date",   default=None, help="Custom Date Window end (YYYY-MM-DD). Requires --start-date.")
     args = parser.parse_args()
-    run_monthly_report(args.client, data_only=args.data_only)
+    if args.start_date or args.end_date:
+        if not (args.start_date and args.end_date):
+            parser.error("--start-date and --end-date must be provided together")
+        run_custom_overview_fetch(args.client, args.start_date, args.end_date)
+    else:
+        run_monthly_report(args.client, data_only=args.data_only)
