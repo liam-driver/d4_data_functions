@@ -120,8 +120,8 @@ Compile the complete draft. Apply bank holiday and weekend rules (see rules tabl
 **Day-of-week placement**
 
 The plan's week column headers are always Mondays. Adjust each time entry date to the correct day within that week using the client config:
-- BAU and Active Workstream tasks → use `activeWorkDay`
-- Weekly Reporting and Monthly Reporting tasks → use `weeklyReportDay`
+- BAU, Active Workstream, and Monthly Reporting tasks → use `activeWorkDay`
+- Weekly Reporting tasks → use `weeklyReportDay`
 
 Day offsets from Monday: Monday +0, Tuesday +1, Wednesday +2, Thursday +3, Friday +4.
 

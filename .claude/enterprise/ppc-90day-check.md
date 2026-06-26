@@ -18,8 +18,8 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 Look up the specified client in the table below:
 - `projectId` for the specified client
 - `responsibleUserId`
-- `weeklyReportDay` — day of week for Reporting time entries
-- `activeWorkDay` — day of week for BAU and Workstream time entries
+- `weeklyReportDay` — day of week for Weekly Reporting time entries only
+- `activeWorkDay` — day of week for BAU, Workstream, and Monthly Reporting time entries
 
 | Client | Project ID | Responsible User ID | Report Day | Active Work Day |
 |---|---|---|---|---|
@@ -135,7 +135,7 @@ Execute in this order:
 3. New time entries (`create_time_entry`)
 
 For task creation, use the same field mapping as `ppc-90day-import` Phase 5a.
-For time entries, use the same field mapping as `ppc-90day-import` Phase 5b. Apply the same day-of-week offset from `ppc-90day-import` Phase 4 — BAU/Workstream entries go on `activeWorkDay`, Reporting entries go on `weeklyReportDay`.
+For time entries, use the same field mapping as `ppc-90day-import` Phase 5b. Apply the same day-of-week offset from `ppc-90day-import` Phase 4 — Weekly Reporting entries go on `weeklyReportDay`; everything else (BAU, Workstream, Monthly Reporting) goes on `activeWorkDay`.
 
 ---
 
