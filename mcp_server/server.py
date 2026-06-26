@@ -274,6 +274,20 @@ def fetch_monthly_client_data(client_name: str) -> str:
 
 
 @mcp.tool()
+def fetch_plan_data(client_name: str) -> str:
+    """Fetch the current 90-day plan for a client with per-week hour allocations across all
+    task categories (BAU, Active Workstream, Reporting). Used by ppc-90day-import and
+    ppc-90day-check skills. Returns a dict keyed by sheet tab name; use the entry where
+    plan_status == 'current'. Each task includes a 'schedule' dict of {YYYY-MM-DD: hours}."""
+    _validate_client_name(client_name)
+    from core.get_plans import get_client_plan_with_schedule
+    plan = get_client_plan_with_schedule(client_name)
+    if plan is None:
+        raise Exception(f"No 90-day plan configured for client: {client_name}")
+    return json.dumps(plan, ensure_ascii=False)
+
+
+@mcp.tool()
 def send_weekly_report(client_name: str, commentary: str) -> str:
     """Send the weekly report email for a client. commentary must be a JSON string matching the report schema."""
     _validate_client_name(client_name)

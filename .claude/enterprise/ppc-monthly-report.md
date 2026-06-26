@@ -235,6 +235,8 @@ For table and chart previews, the user can ask you to adjust `row_filters` in th
 
 If the tool returns an error, surface it verbatim and do not offer confirmation — fix the spec first.
 
+Before outputting the slide preview, scan every field — title, summary, and every bullet — for em dashes (—). If any are found, rewrite before displaying. Do not output the preview until it is clean.
+
 **2f. Iterate**
 
 Respond to user feedback by re-rendering the slide. The graph spec is locked from step 2d — iterations are text and commentary only. Do not modify the graph spec. If the user asks to change the graph, return to step 2d. On every iteration, always re-call `preview_graph` — do not attempt to determine whether the spec changed.
@@ -247,11 +249,13 @@ Slide is locked in. Ask the user if they want to add another trend topic or move
 
 ### Phase 3: Confirmation gate
 
-Once the user signals all trend slides are done, before rendering the Confirmation Summary, perform a silent em dash audit:
+Once the user signals all trend slides are done, before rendering the Confirmation Summary, perform a silent em dash audit across every piece of generated content:
 
-- Scan every generated string — every overview summary, every overview bullets list, every trend summary, every trend bullet, and every action summary — for em dashes (—).
-- Replace any found with a comma, conjunction, or split into two sentences as appropriate.
-- Do not surface this audit to the user. Apply fixes silently.
+- Scan: every overview title, section title, summary, and bullet. Every trend title, summary, and bullet. Every action summary.
+- Replace every em dash (—) found with a comma, a conjunction, or by splitting into two sentences.
+- Do not surface this audit to the user. Apply all fixes silently before rendering the Confirmation Summary.
+
+This is a final safety pass — em dashes should already have been caught per-slide in step 2e. Any that remain here are a failure of that step.
 
 Then render the full **Confirmation Summary** using the **Confirmation Summary Format** section below. This covers every section of the deck.
 
@@ -273,6 +277,14 @@ Once the user confirms:
 ---
 
 ## Commentary Rules
+
+### No Em Dashes — Hard Rule
+
+Em dashes (—) are banned in all generated content: titles, summaries, bullets, and action text. No exceptions.
+
+Every time you write a slide, a preview, or a JSON field, scan it for em dashes before outputting. If you find one, rewrite the phrase — use a comma, a conjunction, or split into two sentences. Do not output the content until it is clean.
+
+---
 
 ### Role
 
@@ -331,7 +343,8 @@ Apply at all times when selecting evidence and framing points:
 
 ### Style Requirements
 
-- **No em dashes, anywhere.** Em dashes are prohibited in all commentary — summaries, bullets, and action text. Do not use an em dash as a pause, connector, or aside. Use a comma, a conjunction, or start a new sentence instead.
+- **No em dashes, anywhere.** See the hard rule at the top of this section. Use a comma, a conjunction, or start a new sentence instead.
+- **Slide titles**: 4–8 words, title-case, insight-led. A slide title should summarise the main story, not describe the topic. Write it like a newspaper headline — active, directional, and specific. 'Paid Search ROAS Bounces Back' not 'Paid Search ROAS Recovery'. 'B2C Engagement Surges' not 'B2C Engagement and Performance Metrics — May 2026'. Never include a date in a slide title.
 - **Overview summary**: 15 words maximum. Hard limit — count the words. Lead with direction, aligned to the client's primary KPI. One supporting data point only if it adds something a direction word cannot.
 - **Overview bullets**: 3–6 bullet points covering the most important performance movements. Each bullet carries one idea. If it needs two clauses, write two bullets. Reference a specific channel. Include a data point only if it makes the bullet stronger, not by default. Maximum one data point per bullet.
 - **Trend summaries**: 15 words maximum. Hard limit — count the words before writing. Lead with direction, one supporting data point only if it adds something a direction word cannot.
@@ -526,8 +539,8 @@ Generate a JSON object exactly matching this structure before calling `generate_
   "overviews": [
     {
       "data_key": "string — identifies which data to use for KPI boxes. Use:\n  \"paid_data\" for the standard previous-month overview\n  \"paid_data_mtd\" for the MTD overview\n  \"paid_data_custom_YYYY-MM-DD_YYYY-MM-DD\" for a Custom Date Window",
-      "section_title": "string — title for the gold section separator slide (e.g. 'April Performance Overview')",
-      "title": "string — title for the scorecard content slide (e.g. 'April Performance')",
+      "section_title": "string — contextual label for the full-page gold section separator (e.g. 'May Performance', 'B2C Performance — May'). A short orienting label, not a commentary headline.",
+      "title": "string — snappy, insight-led headline for the scorecard content slide (e.g. 'Paid Media Holds Strong', 'B2C Engagement Surges'). 4–8 words, title-case, story-first. No dates.",
       "summary": "string — single headline sentence, 15 words maximum",
       "bullets": [{"point": "string"}],
       "bullets_presentation": [{"point": "string"}],
@@ -538,7 +551,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
   ],
   "trends": [
     {
-      "title": "string — short trend label (e.g. 'Paid Search ROAS Recovery')",
+      "title": "string — snappy, narrative headline for this trend slide (e.g. 'Paid Search ROAS Bounces Back', 'Social CPA Climbs Under Pressure'). 4–8 words, title-case, insight-led. A headline that captures the story, not just the topic. No dates.",
       "summary": "string — 15 words maximum, hard limit. Lead with direction. One data point only if it adds something a direction word cannot.",
       "bullets": [{"point": "string"}],
       "bullets_presentation": [{"point": "string"}],
