@@ -13,7 +13,7 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 ## Pre-flight: Read the client config
 
-Before calling any tools, read the **Scoro Client Config** table from the enterprise project docs. You need for the specified client:
+Before calling any tools, read the **PPC Scoro Config** table from the enterprise project docs. You need for the specified client:
 - `projectId` — the Scoro project ID
 - `responsibleUserId` — the Scoro user ID of the PPC account manager
 - `weeklyReportDay` — day of week for Weekly and Monthly Reporting time entries

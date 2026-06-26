@@ -15,7 +15,7 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 **1a. Read client config**
 
-Read the **Scoro Client Config** from the enterprise project docs:
+Read the **PPC Scoro Config** from the enterprise project docs:
 - `projectId` for the specified client
 - `responsibleUserId`
 - `weeklyReportDay` — day of week for Reporting time entries
