@@ -13,13 +13,23 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 ## Pre-flight: Read the client config
 
-Before calling any tools, read the **PPC Scoro Config** table from the enterprise project docs. You need for the specified client:
+Look up the specified client in the table below. You need:
 - `projectId` — the Scoro project ID
 - `responsibleUserId` — the Scoro user ID of the PPC account manager
 - `weeklyReportDay` — day of week for Weekly and Monthly Reporting time entries
 - `activeWorkDay` — day of week for BAU and Active Workstream time entries
 
-If the client is not in the config table, stop and ask the user to add an entry before proceeding.
+If the client is not in the table, stop and ask the user to supply the missing fields before proceeding.
+
+| Client | Project ID | Responsible User ID | Report Day | Active Work Day |
+|---|---|---|---|---|
+| InstaGroup | — | 26 | Monday | Monday |
+| FALKN | — | 26 | Wednesday | Thursday |
+| PaintNuts | — | 26 | Wednesday | Wednesday |
+| Revival Beds | — | 26 | Thursday | Friday |
+| Defib | — | 26 | Monday | Tuesday |
+| BalmersGM | — | 26 | Thursday | Monday |
+| Harrisons Direct | — | 26 | Monday | Thursday |
 
 ---
 

@@ -15,11 +15,23 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 **1a. Read client config**
 
-Read the **PPC Scoro Config** from the enterprise project docs:
+Look up the specified client in the table below:
 - `projectId` for the specified client
 - `responsibleUserId`
 - `weeklyReportDay` — day of week for Reporting time entries
 - `activeWorkDay` — day of week for BAU and Workstream time entries
+
+| Client | Project ID | Responsible User ID | Report Day | Active Work Day |
+|---|---|---|---|---|
+| InstaGroup | — | 26 | Monday | Monday |
+| FALKN | — | 26 | Wednesday | Thursday |
+| PaintNuts | — | 26 | Wednesday | Wednesday |
+| Revival Beds | — | 26 | Thursday | Friday |
+| Defib | — | 26 | Monday | Tuesday |
+| BalmersGM | — | 26 | Thursday | Monday |
+| Harrisons Direct | — | 26 | Monday | Thursday |
+
+If the client is not listed, stop and ask the user to supply the missing fields.
 
 **1b. Ask for client**
 
