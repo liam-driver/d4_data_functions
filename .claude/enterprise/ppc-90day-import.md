@@ -16,6 +16,8 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 Before calling any tools, read the **Scoro Client Config** table from the enterprise project docs. You need for the specified client:
 - `projectId` — the Scoro project ID
 - `responsibleUserId` — the Scoro user ID of the PPC account manager
+- `weeklyReportDay` — day of week for Weekly and Monthly Reporting time entries
+- `activeWorkDay` — day of week for BAU and Active Workstream time entries
 
 If the client is not in the config table, stop and ask the user to add an entry before proceeding.
 
@@ -103,7 +105,19 @@ Report lookup results before building the draft:
 
 ## Phase 4 — Build draft and confirm
 
-Compile the complete draft. Apply bank holiday and weekend rules (see rules tables below) before generating dates. If a target week-start falls on a bank holiday, flag it — do not skip silently or move the entry without asking.
+Compile the complete draft. Apply bank holiday and weekend rules (see rules tables below) before generating dates.
+
+**Day-of-week placement**
+
+The plan's week column headers are always Mondays. Adjust each time entry date to the correct day within that week using the client config:
+- BAU and Active Workstream tasks → use `activeWorkDay`
+- Weekly Reporting and Monthly Reporting tasks → use `weeklyReportDay`
+
+Day offsets from Monday: Monday +0, Tuesday +1, Wednesday +2, Thursday +3, Friday +4.
+
+Example: FALKN `activeWorkDay = Thursday`. Week of `2026-06-01` (Monday) → entry date = `2026-06-04`.
+
+If the adjusted date lands on a bank holiday, flag it in the draft — do not silently skip or move it without asking.
 
 **Task creation table** (new tasks only):
 
