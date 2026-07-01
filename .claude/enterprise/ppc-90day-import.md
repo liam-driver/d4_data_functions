@@ -24,11 +24,11 @@ If the client is not in the table, stop and ask the user to supply the missing f
 | Client | Project ID | Responsible User ID | Report Day | Active Work Day |
 |---|---|---|---|---|
 | InstaGroup | 633 | 26 | Monday | Monday |
-| FALKN | 563 | 26 | Wednesday | Thursday |
+| FALKN | 675 | 26 | Wednesday | Thursday |
 | PaintNuts | 621 | 26 | Wednesday | Wednesday |
 | Revival Beds | 606 | 26 | Thursday | Friday |
 | Defib | 614 | 26 | Monday | Tuesday |
-| BalmersGM | 605 | 26 | Thursday | Monday |
+| BalmersGM | 605 | 26 | Thursday | Tuesday |
 | Harrisons Direct | 637 | 26 | Monday | Thursday |
 
 ---
