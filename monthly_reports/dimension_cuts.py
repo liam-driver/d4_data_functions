@@ -228,6 +228,9 @@ _ADDITIVE_METRIC_CANDIDATES = [
     ('Views',              ['Views']),
     ('Hooks',              ['Hooks']),
     ('Holds',              ['Holds']),
+    ('Search Impressions',                       ['Search Impressions']),
+    ('Total Eligible Impressions – Estimated',   ['Total Eligible Impressions – Estimated']),
+    ('Total Absolute Top Impressions',           ['Total Absolute Top Impressions']),
 ]
 
 
@@ -265,6 +268,18 @@ def _compute_derived_metrics(df_work):
         df_work['CPV'] = safe_div(df_work['Cost'], df_work['Views'], multiplier=1)
     if 'Cost' in df_work.columns and 'Hooks' in df_work.columns:
         df_work['Cost Per Hook'] = safe_div(df_work['Cost'], df_work['Hooks'], multiplier=1)
+    if 'Search Impressions' in df_work.columns and 'Total Eligible Impressions – Estimated' in df_work.columns:
+        df_work['Impression Share'] = safe_div(
+            df_work['Search Impressions'],
+            df_work['Total Eligible Impressions – Estimated'],
+            multiplier=100,
+        )
+    if 'Total Absolute Top Impressions' in df_work.columns and 'Search Impressions' in df_work.columns:
+        df_work['Abs. Top Impression Share'] = safe_div(
+            df_work['Total Absolute Top Impressions'],
+            df_work['Search Impressions'],
+            multiplier=100,
+        )
     return df_work
 
 
