@@ -46,6 +46,14 @@ _Avoid_: "dimension scorecard", "channel scorecard" — scorecard boxes always r
 A single coloured box within a Scorecard Slide showing one metric's `curr`, `prev`, and `pct` values for the selected comparison window.
 _Avoid_: "stat box", "metric card"
 
+**Organic Overview**:
+A scorecard slide covering Organic Search performance from `overall_data` (GA4), filtered to the `"Organic Search"` Channel row. Metrics: Sessions, Conversions (Lead Gen) or Transaction Revenue (Ecommerce), and Conversion Rate. Rendered as its own navy-separated section after the 90-day plan Gantt. Included per-run when requested.
+_Avoid_: SEO slide, organic traffic slide
+
+**CRO Overview**:
+A scorecard slide covering site-wide conversion performance from `overall_data` (GA4), using the `"Total"` Channel row. Metrics: Sessions, Conversion Rate, and AOV (Ecommerce only). Rendered as its own navy-separated section after the Organic section. Included per-run when requested.
+_Avoid_: conversion slide, site-wide overview
+
 ### Report types
 
 **Weekly Report**:

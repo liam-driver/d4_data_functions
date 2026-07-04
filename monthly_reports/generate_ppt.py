@@ -307,6 +307,40 @@ def _build_kpis_for(client, data_key='paid_data', kpi_count=None):
     return all_kpis[:3]
 
 
+def _build_kpis_for_overall(client, channel_key, data_key, kpi_count=None):
+    """Build KPI boxes from overall_data (GA4) for a specific channel row.
+
+    channel_key: 'Organic Search' for the organic overview, 'Total' for CRO.
+    data_key: e.g. 'overall_data_mom' or 'overall_data_yoy'.
+    Returns [] when the channel_key is absent from the data.
+    """
+    t = client.get(data_key, {}).get(channel_key, {})
+    if not t:
+        return []
+    if client.get('account_type') == 'Lead Gen':
+        all_kpis = [
+            ('Sessions',        t.get('Sessions', {})),
+            ('Conversions',     t.get('Conversions', {})),
+            ('Conversion Rate', t.get('Conversion Rate', {})),
+        ]
+    else:
+        if channel_key == 'Organic Search':
+            all_kpis = [
+                ('Sessions',            t.get('Sessions', {})),
+                ('Transaction Revenue', t.get('Transaction Revenue', {})),
+                ('Conversion Rate',     t.get('Conversion Rate', {})),
+            ]
+        else:
+            all_kpis = [
+                ('Sessions',        t.get('Sessions', {})),
+                ('Conversion Rate', t.get('Conversion Rate', {})),
+                ('AOV',             t.get('AOV', {})),
+            ]
+    if kpi_count is not None:
+        return all_kpis[:max(1, min(4, int(kpi_count)))]
+    return all_kpis[:3]
+
+
 def _extract_current_tasks(plan_json):
     if not plan_json:
         return []
@@ -1249,6 +1283,8 @@ def _kpis_for_overview(client, item):
     data_key = "paid_data"              → flat paid_data_{comparison} keys
     data_key = "paid_data_mtd"          → flat paid_data_mtd (always YoY comparison)
     data_key = "paid_data_custom_X_Y"   → nested {"mom": ..., "yoy": ...} under that key
+    data_key = "organic_data"           → overall_data_{comparison}["Organic Search"]
+    data_key = "cro_data"               → overall_data_{comparison}["Total"]
     """
     data_key   = item['data_key']
     comparison = item.get('comparison', 'mom')
@@ -1258,6 +1294,10 @@ def _kpis_for_overview(client, item):
         return _build_kpis_for(client, f'paid_data_{comparison}', kpi_count)
     elif data_key == 'paid_data_mtd':
         return _build_kpis_for(client, 'paid_data_mtd', kpi_count)
+    elif data_key == 'organic_data':
+        return _build_kpis_for_overall(client, 'Organic Search', f'overall_data_{comparison}', kpi_count)
+    elif data_key == 'cro_data':
+        return _build_kpis_for_overall(client, 'Total', f'overall_data_{comparison}', kpi_count)
     else:
         # Custom Date Window: data is nested {"mom": ..., "yoy": ...}
         nested = client.get(data_key, {})
@@ -1282,7 +1322,7 @@ def _resolve_overview_date_label(client, item):
             item.get('compare_start_string'), item.get('compare_end_string'),
         )
 
-    if data_key == 'paid_data':
+    if data_key in ('paid_data', 'organic_data', 'cro_data'):
         start = client.get('start_date_string', '')
         end   = client.get('end_date_string', '')
         if comparison == 'yoy':
@@ -1445,6 +1485,42 @@ def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
     all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json) if plan_json else ([], None, None)
     if all_tasks:
         slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
+
+    # ── Organic Section ───────────────────────────────────────────────────────
+    organic_overviews = sc.get('organic_overviews', [])
+    if organic_overviews:
+        slide_section_separator(prs, 'Organic', variant='navy')
+        for item in organic_overviews:
+            template      = item.get('template', 'scorecard_vertical')
+            kpis          = _kpis_for_overview(client, item)
+            date_label    = _resolve_overview_date_label(client, item)
+            section_title = item.get('section_title', 'Organic Performance')
+            title         = item.get('title', 'Organic Performance')
+            summary       = item.get('summary', '')
+            _bullets      = item.get(bullet_key, item.get('bullets', []))
+            slide_section_separator(prs, section_title, variant='gold')
+            if kpis:
+                _render_overview_slide(prs, client, template, title=title, summary=summary,
+                                       bullets=_bullets, kpis=kpis, date_label=date_label)
+            else:
+                print(f"WARNING: No 'Organic Search' data found in overall_data — organic overview slide skipped.")
+                slide_commentary(prs, title, summary, _bullets)
+
+    # ── CRO Section ───────────────────────────────────────────────────────────
+    cro_overviews = sc.get('cro_overviews', [])
+    if cro_overviews:
+        slide_section_separator(prs, 'CRO', variant='navy')
+        for item in cro_overviews:
+            template      = item.get('template', 'scorecard_vertical')
+            kpis          = _kpis_for_overview(client, item)
+            date_label    = _resolve_overview_date_label(client, item)
+            section_title = item.get('section_title', 'CRO Overview')
+            title         = item.get('title', 'CRO Overview')
+            summary       = item.get('summary', '')
+            _bullets      = item.get(bullet_key, item.get('bullets', []))
+            slide_section_separator(prs, section_title, variant='gold')
+            _render_overview_slide(prs, client, template, title=title, summary=summary,
+                                   bullets=_bullets, kpis=kpis, date_label=date_label)
 
     month_year   = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B %Y")
     footer_label = f"{_strip_parenthetical(client['name'])} | {month_year}"

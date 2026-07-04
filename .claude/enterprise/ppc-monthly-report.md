@@ -43,12 +43,26 @@ Before fetching Slack context or rendering the preview, ask the user which overv
 - **No** — standard windows only *(default)*
 - **Yes** — provide start and end dates for each custom window
 
+**Organic overview** — do you want to include an Organic Search performance overview slide?
+- **No** — skip *(default)*
+- **Yes** — which comparison do you want in the scorecards?
+  - **MoM** — vs. the calendar month before [previous month]
+  - **YoY** — vs. the same month last year
+
+**CRO overview** — do you want to include a site-wide CRO performance overview slide?
+- **No** — skip *(default)*
+- **Yes** — which comparison do you want in the scorecards?
+  - **MoM** — vs. the calendar month before [previous month]
+  - **YoY** — vs. the same month last year
+
 ---
 
 Wait for the user to confirm all choices before proceeding. Record:
 - `overview_comparison` (`"mom"` or `"yoy"`) for the previous-month overview
 - `mtd_comparison` (`"mom"` or `"yoy"`) for the MTD overview
 - `custom_windows`: list of `{start_date, end_date}` objects (may be empty)
+- `include_organic` (`true`/`false`) and `organic_comparison` (`"mom"` or `"yoy"`) if included
+- `include_cro` (`true`/`false`) and `cro_comparison` (`"mom"` or `"yoy"`) if included
 
 If `mtd.start_date` is not present in the fetch response, skip the MTD question entirely.
 
@@ -327,6 +341,7 @@ For **trend slides**: use `previous_period` and `previous_year` from the `fetch_
 - `mtd.llm_data`: MTD paid data broken down by ad platform, YoY.
 - `mtd.overall_data`: Site-wide GA4 data for the same MTD window, YoY.
 - `mtd.start_date` / `mtd.end_date`: The actual date bounds of the MTD window (dd/mm/yyyy strings).
+- `mom.overall_data` / `yoy.overall_data`: Site-wide GA4 data broken down by Channel (e.g. Organic Search, Paid Search, Direct). Use for organic and CRO commentary. The `"Organic Search"` row powers organic overview KPIs; the `"Total"` row powers CRO overview KPIs.
 - `plan`: The client's 90-day plan, keyed by sheet tab name. Each entry has `client_name`, `plan_start`, `plan_end`, `plan_status` (`"current"` or `"old"`), and `tasks` — a list of objects with `name`, `desc`, `category`, `status`, `start_date`, `end_date`, and `platform`. Use only tasks from entries where `plan_status == "current"`. This is the authoritative source for Actions and the Gantt slide.
 - **Project documents**: Client background, holistic goals, PPC goals, KPIs, seasonality, and historical context are in the project documents. These are the authoritative source for client context and supersede any equivalent fields in the JSON data.
 
@@ -404,6 +419,34 @@ Render this after the baseline fetch and Slack context are loaded. The Trends se
 
 ---
 
+*(If organic was requested: check whether 'Organic Search' is present in the overall_data. If it is missing, warn the user: "No Organic Search channel found in the GA4 data for this client — the organic overview slide will be skipped." and set include_organic = false. Otherwise, populate the block below.)*
+
+*(Repeat the block below for each item in organic_overviews, if include_organic is true.)*
+
+**Section: [item.section_title]**
+**Period:** [item.start_date_string] – [item.end_date_string]
+
+**[item.title]** *(Scorecard + Commentary)*
+[item.summary]
+- [bullet 1]
+- [bullet 2]
+- ...
+
+---
+
+*(Repeat the block below for each item in cro_overviews, if include_cro is true.)*
+
+**Section: [item.section_title]**
+**Period:** [item.start_date_string] – [item.end_date_string]
+
+**[item.title]** *(Scorecard + Commentary)*
+[item.summary]
+- [bullet 1]
+- [bullet 2]
+- ...
+
+---
+
 **Section: Top Level Trends — Draft Suggestions**
 
 Based on the baseline data and Slack context, here are the most signal-rich topics worth exploring:
@@ -458,6 +501,12 @@ Render this once all trend slides are confirmed, before PPTX generation.
 **Period:** [start_date] – [end_date]
 
 *(One line per item in the overviews list)*
+**[item.section_title]** — [item.summary]
+
+*(One line per item in organic_overviews, if present)*
+**[item.section_title]** — [item.summary]
+
+*(One line per item in cro_overviews, if present)*
 **[item.section_title]** — [item.summary]
 
 **Top Level Trends**
@@ -549,6 +598,32 @@ Generate a JSON object exactly matching this structure before calling `generate_
       "comparison": "string — \"mom\" or \"yoy\". Controls which comparison period is shown in the scorecard KPI boxes and the date label."
     }
   ],
+  "organic_overviews": [
+    {
+      "data_key": "organic_data",
+      "section_title": "string — gold separator label (e.g. 'Organic Performance')",
+      "title": "string — insight-led headline, 4–8 words, title-case, no dates",
+      "summary": "string — 15 words maximum",
+      "bullets": [{"point": "string"}],
+      "bullets_presentation": [{"point": "string"}],
+      "template": "string — scorecard_vertical (default) or scorecard_horizontal",
+      "kpi_count": "integer — 1–4, default 3",
+      "comparison": "string — \"mom\" or \"yoy\""
+    }
+  ],
+  "cro_overviews": [
+    {
+      "data_key": "cro_data",
+      "section_title": "string — gold separator label (e.g. 'CRO Overview')",
+      "title": "string — insight-led headline, 4–8 words, title-case, no dates",
+      "summary": "string — 15 words maximum",
+      "bullets": [{"point": "string"}],
+      "bullets_presentation": [{"point": "string"}],
+      "template": "string — scorecard_vertical (default) or scorecard_horizontal",
+      "kpi_count": "integer — 1–4, default 3",
+      "comparison": "string — \"mom\" or \"yoy\""
+    }
+  ],
   "trends": [
     {
       "title": "string — snappy, narrative headline for this trend slide (e.g. 'Paid Search ROAS Bounces Back', 'Social CPA Climbs Under Pressure'). 4–8 words, title-case, insight-led. A headline that captures the story, not just the topic. No dates.",
@@ -591,6 +666,10 @@ Generate a JSON object exactly matching this structure before calling `generate_
 ```
 
 **Field constraints:**
+
+`organic_overviews[]` — omit the key entirely when organic was not requested. When included, always a single-item list with `data_key: "organic_data"`. KPI metrics are fixed by account type (Lead Gen: Sessions / Conversions / Conversion Rate; Ecommerce: Sessions / Transaction Revenue / Conversion Rate). If the `overall_data` response does not contain an `"Organic Search"` channel, warn the user and omit this key. Only `scorecard_vertical` and `scorecard_horizontal` templates are valid.
+
+`cro_overviews[]` — omit the key entirely when CRO was not requested. When included, always a single-item list with `data_key: "cro_data"`. KPI metrics are fixed by account type (Lead Gen: Sessions / Conversions / Conversion Rate; Ecommerce: Sessions / Conversion Rate / AOV). Only `scorecard_vertical` and `scorecard_horizontal` templates are valid.
 
 `overviews[]` — always a list (never the old `overview` / `mtd_overview` keys):
 - Include one item for the previous-month overview, one for MTD (if `mtd.start_date` was present), then one per Custom Date Window in the order confirmed with the user.

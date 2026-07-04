@@ -513,12 +513,15 @@ def preview_graph(client_name: str, graph_spec: str) -> list:
 @mcp.tool()
 def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     """Generate the monthly PPTX for a client from pre-generated slide content.
-    slide_content must be a JSON string with keys: overviews (list of overview slide
+    slide_content must be a JSON string with keys: overviews (list of paid overview slide
     items — each with data_key, section_title, title, summary, bullets,
-    bullets_presentation, template, kpi_count, comparison), trends (list of
-    title/summary/bullets/bullets_presentation/graph objects), and actions (list of
-    task/summary/status objects). Always produces two decks: a detailed deck (full
-    metric bullets) and a presentation deck (narrative-only bullets, data-free).
+    bullets_presentation, template, kpi_count, comparison), organic_overviews (optional
+    list — single item with data_key='organic_data'; omit key entirely when not requested),
+    cro_overviews (optional list — single item with data_key='cro_data'; omit key entirely
+    when not requested), trends (list of title/summary/bullets/bullets_presentation/graph
+    objects), and actions (list of task/summary/status objects). Organic and CRO sections
+    are rendered after the 90-day plan Gantt. Always produces two decks: a detailed deck
+    (full metric bullets) and a presentation deck (narrative-only bullets, data-free).
     Returns a JSON object with 'path', 'download_url', 'presentation_path', and
     'presentation_download_url' — share both download URLs with the user."""
     _validate_client_name(client_name)
