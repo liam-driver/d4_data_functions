@@ -7,7 +7,7 @@ An automated reporting pipeline that generates weekly and monthly paid media per
 ### Data pipeline
 
 **Funnel Import Data**:
-Time-series paid media performance rows for a client — one row per date/channel combination. The canonical source is BigQuery (`d4_reporting.funnel_data`). Funnel.io writes to it; the report pipeline reads from it.
+Time-series performance rows for a client — one row per date/channel combination, covering both paid and organic channels. The canonical source is BigQuery (`d4_reporting.funnel_data`). Funnel.io writes to it; the report pipeline reads from it.
 _Avoid_: "Funnel Import sheet", "the spreadsheet data", "raw data"
 
 **Client**:
@@ -27,7 +27,7 @@ A metric column name in BigQuery that is consistent across all clients, regardle
 _Avoid_: Normalised metric, mapped metric
 
 **Dimension**:
-A non-metric grouping column used to break down report data for a client (e.g. `Ad Channel`, `Campaign`, `Website`). The primary breakdown dimension is configured per-client in `config.json`. Extra dimensions (`website`, `department`) exist as nullable columns in BigQuery for clients that need them.
+A non-metric grouping column used to break down report data for a client (e.g. `Channel`, `Ad Channel`, `Campaign`, `Website`). The primary breakdown dimension is configured per-client in `config.json`. Extra dimensions (`website`, `department`) exist as nullable columns in BigQuery for clients that need them. `Channel` (GA4 session default channel group) is a non-paid Dimension covering organic, direct, and paid traffic together.
 
 **Data Cut**:
 A breakdown of Funnel Import Data by a Dimension for a given date window, used to power a Trend Slide. Produces a comparison table (current vs prior period) and a timeseries. One Data Cut is fetched per Trend Slide via the `fetch_trend_data` MCP tool.

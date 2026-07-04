@@ -210,3 +210,23 @@ class TestGetDimensionCut:
             from monthly_reports.dimension_cuts import get_dimension_cut
             with pytest.raises(ValueError, match="not found in sheet"):
                 get_dimension_cut(CLIENT_BASE, "NonExistentDimension")
+
+    def test_channel_cut_includes_non_paid_rows(self):
+        """Cutting by Channel includes rows with null Ad Channel/Ad Platform (non-paid traffic)."""
+        rows = [
+            # Non-paid rows — no Ad Channel or Ad Platform
+            {"Date": pd.Timestamp("2026-04-05"), "Channel": "Organic Search", "Ad Channel": None, "Ad Platform": None,
+             "Cost (GBP)": 0.0, "Transaction Revenue (GBP)": 800.0, "Impressions": 5000, "Clicks": 200, "Transactions": 10},
+            {"Date": pd.Timestamp("2026-03-05"), "Channel": "Organic Search", "Ad Channel": None, "Ad Platform": None,
+             "Cost (GBP)": 0.0, "Transaction Revenue (GBP)": 700.0, "Impressions": 4500, "Clicks": 180, "Transactions": 9},
+            # Paid row alongside
+            {"Date": pd.Timestamp("2026-04-10"), "Channel": "Paid Search", "Ad Channel": "Paid Search", "Ad Platform": "Google",
+             "Cost (GBP)": 100.0, "Transaction Revenue (GBP)": 500.0, "Impressions": 1000, "Clicks": 50, "Transactions": 5},
+        ]
+        df = pd.DataFrame(rows)
+        with patch("monthly_reports.dimension_cuts.initialise_df", return_value=df):
+            from monthly_reports.dimension_cuts import get_dimension_cut
+            result = get_dimension_cut(CLIENT_BASE, "Channel")
+
+        assert "Organic Search" in result, "Non-paid Channel rows must not be filtered out"
+        assert "Paid Search" in result

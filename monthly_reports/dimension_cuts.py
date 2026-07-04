@@ -224,6 +224,7 @@ _ADDITIVE_METRIC_CANDIDATES = [
     ('Conversions',        ['Conversions']),
     ('Impressions',        ['Impressions']),
     ('Clicks',             ['Clicks']),
+    ('Sessions',           ['Sessions']),
     ('Transactions',       ['Transactions']),
     ('Views',              ['Views']),
     ('Hooks',              ['Hooks']),
@@ -256,6 +257,8 @@ def _compute_derived_metrics(df_work):
     )
     if 'Clicks' in df_work.columns and conv_col:
         df_work['Conversion Rate'] = safe_div(df_work[conv_col], df_work['Clicks'], multiplier=100)
+    if 'Sessions' in df_work.columns and conv_col:
+        df_work['Session Conversion Rate'] = safe_div(df_work[conv_col], df_work['Sessions'], multiplier=100)
     if 'Transactions' in df_work.columns and 'Transaction Revenue' in df_work.columns:
         df_work['AOV'] = safe_div(df_work['Transaction Revenue'], df_work['Transactions'], multiplier=1)
     if 'Views' in df_work.columns and 'Impressions' in df_work.columns:
@@ -307,9 +310,6 @@ def get_dimension_cut(client, dimension_column, filters=None):
     }
 
     df = apply_filters(df, client, breakdown_dimension, date_range)
-    for col in ('Ad Channel', 'Ad Platform'):
-        if col in df.columns:
-            df = df[df[col].notna() & (df[col] != '')]
     df = _apply_scope_filters(df, filters)
 
     columns_set = set(df.columns.tolist())
@@ -366,9 +366,6 @@ def get_dimension_timeseries(client, dimension_column, filters=None, time_dimens
         (df[dimension_column] != '')
     )
     df = df.loc[mask].copy()
-    for col in ('Ad Channel', 'Ad Platform'):
-        if col in df.columns:
-            df = df[df[col].notna() & (df[col] != '')]
     df = _apply_scope_filters(df, filters)
 
     if df.empty:
@@ -406,7 +403,7 @@ def get_dimension_timeseries(client, dimension_column, filters=None, time_dimens
     df_work = _compute_derived_metrics(df_work)
 
     int_metrics = ['Impressions', 'Clicks', 'Transactions', 'Conversions', 'Sessions', 'Views', 'Hooks', 'Holds']
-    pct_metrics = ['CTR', 'Conversion Rate', 'ROAS', 'Impression Share', 'Abs. Top Impression Share', 'View Rate', 'Hook Rate', 'Hold Rate']
+    pct_metrics = ['CTR', 'Conversion Rate', 'Session Conversion Rate', 'ROAS', 'Impression Share', 'Abs. Top Impression Share', 'View Rate', 'Hook Rate', 'Hold Rate']
     gbp_metrics = ['Cost', 'Transaction Revenue', 'CPA', 'CPC', 'AOV', 'CPV', 'Cost Per Hook']
     metrics = [col for col in df_work.columns if col not in [dimension_column, time_dimension]]
 

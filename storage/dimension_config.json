@@ -1,5 +1,10 @@
 [
   {
+    "column_name": "Channel",
+    "label": "Channel",
+    "suggested_filters": []
+  },
+  {
     "column_name": "Ad Platform",
     "label": "Ad Platform",
     "suggested_filters": []

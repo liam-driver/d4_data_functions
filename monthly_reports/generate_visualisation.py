@@ -136,10 +136,7 @@ def _apply_row_filters_df(df, row_filters, dimension_col):
     return df[df[dimension_col].isin(valid_dims)]
 
 
-def _drop_null_paid_dims(df, dimension_col=None):
-    for col in ('Ad Channel', 'Ad Platform'):
-        if col in df.columns:
-            df = df[df[col].notna() & ~df[col].astype(str).str.strip().isin(_NULL_STRINGS)]
+def _drop_summary_rows(df, dimension_col=None):
     if dimension_col and dimension_col in df.columns:
         df = df[~df[dimension_col].astype(str).str.strip().str.lower().isin(_TOTAL_STRINGS)]
     return df
@@ -179,7 +176,7 @@ def build_dimension_df(client, data_source, comparison_type):
             rows.append(row)
         df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=[dimension_col])
 
-    return _drop_null_paid_dims(df, dimension_col)
+    return _drop_summary_rows(df, dimension_col)
 
 
 def build_comparison_df(client, data_source, comparison_type):
@@ -206,7 +203,7 @@ def build_comparison_df(client, data_source, comparison_type):
                 prev_row[metric] = 0.0
         rows.extend([curr_row, prev_row])
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=[dimension_col, 'Period'])
-    return _drop_null_paid_dims(df, dimension_col)
+    return _drop_summary_rows(df, dimension_col)
 
 
 def _build_df_for_spec(client, spec):
