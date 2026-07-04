@@ -288,6 +288,37 @@ def fetch_plan_data(client_name: str) -> str:
 
 
 @mcp.tool()
+def fetch_cro_plan_data(client_name: str) -> str:
+    """Fetch the current CRO 90-day plan for a client. Returns a dict keyed by sheet tab name;
+    use the entry where plan_status == 'current'. Task schema: name, idea, hypothesis, objective,
+    platform (workstream), facs, test_or_jdi, category (Active Workstream or BAU), status,
+    start_date, end_date, schedule ({YYYY-MM-DD: hours}). RICE fields (reach, impact, confidence,
+    effort, score) are included when present in the sheet."""
+    _validate_client_name(client_name)
+    from core.get_plans import get_client_cro_plan
+    plan = get_client_cro_plan(client_name)
+    if plan is None:
+        raise Exception(f"No CRO plan configured for client: {client_name}")
+    return json.dumps(plan, ensure_ascii=False)
+
+
+@mcp.tool()
+def fetch_seo_plan_data(client_name: str) -> str:
+    """Fetch the current SEO plan for a client using cell-colour parsing. Returns a dict keyed by
+    sheet tab name; use the entry where plan_status == 'current'. Active periods are determined by
+    #fff2cc cell background colour in the sheet. Task schema: name, desc, category (always
+    'Active Workstream'), status (inferred: Scheduled/In Progress/Complete), start_date, end_date,
+    platform (section header e.g. Tech, Content, Hygiene). No schedule dict — SEO plans have no
+    per-week hour allocations."""
+    _validate_client_name(client_name)
+    from core.get_plans import get_client_seo_plan
+    plan = get_client_seo_plan(client_name)
+    if plan is None:
+        raise Exception(f"No SEO plan configured for client: {client_name}")
+    return json.dumps(plan, ensure_ascii=False)
+
+
+@mcp.tool()
 def send_weekly_report(client_name: str, commentary: str) -> str:
     """Send the weekly report email for a client. commentary must be a JSON string matching the report schema."""
     _validate_client_name(client_name)

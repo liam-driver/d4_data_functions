@@ -113,8 +113,18 @@ A projected end-of-month spend figure extrapolated from actual spend to date. Us
 
 ## Planning & Scheduling
 
-**90-Day Plan**:
-A per-client Google Sheet tracking all PPC delivery tasks across a 90-day window. Each row is a task; columns from week 1 onward contain the planned hours for that task in that week. The first sheet tab is the current plan (`plan_status: "current"`); older tabs are historical.
+**PPC 90-Day Plan**:
+A per-client Google Sheet tracking all PPC delivery tasks across a 90-day window. Each row is a task; columns from week 1 onward contain the planned hours for that task in that week. The first sheet tab is the current plan (`plan_status: "current"`); older tabs are historical. Sheet URL stored in `config.json` as `"plan"`. Fetched via `fetch_plan_data` MCP tool.
+_Avoid_: quarterly plan, sprint plan, 90-day plan (ambiguous — always prefix with team)
+
+**CRO 90-Day Plan**:
+A per-client Google Sheet tracking all CRO delivery tasks across a 90-day window. Same tab/status structure as the PPC plan. Columns are parsed by header name (not position) because the column count varies across clients. Per-week hour allocations follow the same Monday-date header convention. Sheet URL stored in `config.json` as `"cro_plan"`. Fetched via `fetch_cro_plan_data` MCP tool.
+Task schema: `name`, `idea`, `hypothesis`, `objective`, `workstream` (→ rendered as `platform` on Kanban/Gantt), `facs`, `test_or_jdi`, `category` (`"Active Workstream"` or `"BAU"`), `status`, `start_date`, `end_date`, `schedule`. RICE fields (`reach`, `impact`, `confidence`, `effort`, `score`) are included when present in the sheet.
+_Avoid_: quarterly plan, sprint plan
+
+**SEO 90-Day Plan**:
+A per-client Google Sheet tracking SEO delivery tasks, typically covering a 12-month rolling window. Unlike PPC/CRO plans, there are no explicit `Start Date`, `End Date`, or `Status` columns, and cells contain no hour allocations. Active periods are indicated by cell background colour `#fff2cc`; start and end dates are inferred from the first and last coloured cell per task row. Status is inferred from today's date: future → `"Scheduled"`, overlapping today → `"In Progress"`, past → `"Complete"`. Section headers (Tech, Content, Hygiene, Dev Briefs, Indexability, Optimisations, Planning) act as the `platform` grouping on Kanban/Gantt slides. All tasks are treated as `"Active Workstream"` for Gantt filtering. Sheet URL stored in `config.json` as `"seo_plan"`. Fetched via `fetch_seo_plan_data` MCP tool, which uses `fetch_sheet_metadata(params={"includeGridData": "true"})` to read cell background colours.
+Task schema: `name`, `desc`, `category` (always `"Active Workstream"`), `status` (inferred), `start_date`, `end_date`, `platform` (section header).
 _Avoid_: quarterly plan, sprint plan
 
 **Plan Schedule**:
