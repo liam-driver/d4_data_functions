@@ -11,7 +11,29 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 ---
 
-## Phase 0 — Ad hoc task check
+## Phase 0A — Monthly report scheduling
+
+Before fetching any plan or Scoro data, ask:
+
+> "Are there any monthly reports to schedule this week? List any clients where a monthly report meeting is happening this week, along with the confirmed date and expected duration."
+
+If the user says none, skip to Phase 0B.
+
+For each client and date provided:
+
+1. Record: `client`, `date` (YYYY-MM-DD), `duration` (hours). If duration is not given, use the hours from the 90-day plan's `Monthly Reporting` entry for that week when fetched in Phase 1 — note it as **TBC from plan** for now and resolve it once the plan is fetched. If the plan also shows no hours for that week, ask the user.
+2. Validate the date: it must not be a weekend or bank holiday. If it is, flag it immediately and ask for a revised date.
+3. Stage a time entry for `{Client}: PPC: Monthly Reporting` on the given date. Task lookup happens in Phase 1 alongside the rest of the Scoro data — mark it as **pending lookup** for now.
+
+> **Monthly reports staged this week:**
+> - {Client} — {date}, {duration}h _(task lookup pending)_
+> - ...
+
+These staged entries will be resolved and confirmed in Phase 4 alongside all other changes.
+
+---
+
+## Phase 0B — Ad hoc task check
 
 Before fetching any plan or Scoro data, ask:
 
@@ -69,6 +91,8 @@ Do not make any further calls until the user resolves this.
 Wait for the user's answer before matching any tasks to plan items.
 
 Then, for each Scoro task returned: call `get_time_entries` filtered by `taskId` to retrieve all scheduled entries.
+
+**Resolve Phase 0A monthly report task lookups:** If this client had a monthly report staged in Phase 0A, find `{Client}: PPC: Monthly Reporting` in the returned tasks and record its `taskId`. Also resolve any **TBC from plan** durations now — look up that week's hours for the Monthly Reporting task in the fetched plan. If the task is not found in Scoro, mark it as **New** (to be created). If the plan shows no hours for that week, ask the user to confirm the duration before proceeding.
 
 > **Important — task date fields are unreliable:** A Scoro task's own `startDate` and `dueDate` metadata can be stale and must never be used to conclude a workstream hasn't started yet or has ended. The 90-day plan's `schedule` field is the only source of truth for when work is planned. Only existing time entries indicate what has actually been logged. If a task's date metadata conflicts with the plan schedule, flag it to the user rather than treating the metadata as authoritative.
 
@@ -170,7 +194,7 @@ Execute in this order:
 3. New time entries (`create_time_entry`)
 
 For task creation, use the same field mapping as `ppc-90day-import` Phase 5a.
-For time entries, use the same field mapping as `ppc-90day-import` Phase 5b. Apply the same day-of-week offset from `ppc-90day-import` Phase 4 — Weekly Reporting entries go on `weeklyReportDay`; everything else (BAU, Workstream, Monthly Reporting) goes on `activeWorkDay`.
+For time entries, use the same field mapping as `ppc-90day-import` Phase 5b. Apply the same day-of-week offset from `ppc-90day-import` Phase 4 — Weekly Reporting entries go on `weeklyReportDay`; BAU and Workstream entries go on `activeWorkDay`. Monthly Reporting entries use the exact date confirmed by the user in Phase 0A — do not apply a day-of-week offset.
 
 ---
 

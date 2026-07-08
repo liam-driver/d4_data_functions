@@ -77,7 +77,9 @@ All tasks where `category == "BAU"` are merged into a single synthetic entry:
 | Due datetime | Last target week date at 17:00, with correct BST/GMT offset |
 | Description | *(omit)* |
 
-`Active Workstream` and `Reporting` tasks remain as individual entries.
+`Active Workstream` and `Weekly Reporting` tasks remain as individual entries.
+
+**Exclude Monthly Reporting:** Do not import any tasks where `category == "Monthly Reporting"` (or task name contains "Monthly Reporting"). Monthly report time entries are scheduled at the start of each week via the `ppc-90day-check` skill, where the confirmed meeting date can be used. Importing them here would place them on the wrong date.
 
 **2e. Build the import list**
 
@@ -120,8 +122,9 @@ Compile the complete draft. Apply bank holiday and weekend rules (see rules tabl
 **Day-of-week placement**
 
 The plan's week column headers are always Mondays. Adjust each time entry date to the correct day within that week using the client config:
-- BAU, Active Workstream, and Monthly Reporting tasks → use `activeWorkDay`
+- BAU and Active Workstream tasks → use `activeWorkDay`
 - Weekly Reporting tasks → use `weeklyReportDay`
+- Monthly Reporting tasks → **not scheduled here** (handled by ppc-90day-check at the start of each week)
 
 Day offsets from Monday: Monday +0, Tuesday +1, Wednesday +2, Thursday +3, Friday +4.
 
