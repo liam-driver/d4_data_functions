@@ -11,13 +11,6 @@ from unittest.mock import patch
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-DIMENSION_CONFIG = [
-    {"column_name": "Ad Platform",    "label": "Ad Platform",    "requires_channel_filter": False},
-    {"column_name": "Asset",          "label": "Asset",          "requires_channel_filter": True},
-    {"column_name": "Campaign",       "label": "Campaign",       "requires_channel_filter": True},
-    {"column_name": "Campaign Group", "label": "Campaign Group", "requires_channel_filter": True},
-]
-
 CLIENT_BASE = {
     "name": "TEST",
     "account_type": "Ecommerce",
@@ -54,76 +47,16 @@ def _make_funnel_df():
     return pd.DataFrame(rows)
 
 
-# ── get_available_dimensions tests ────────────────────────────────────────────
-
-class TestGetAvailableDimensions:
-
-    def test_returns_matching_dimensions(self):
-        """Columns in the sheet that match the allowlist are returned."""
-        df = _make_funnel_df()
-        with (
-            patch("monthly_reports.dimension_cuts.initialise_df", return_value=df),
-            patch("monthly_reports.dimension_cuts._load_dimension_config", return_value=DIMENSION_CONFIG),
-        ):
-            from monthly_reports.dimension_cuts import get_available_dimensions
-            result = get_available_dimensions(CLIENT_BASE)
-
-        column_names = [e["column_name"] for e in result]
-        assert "Campaign" in column_names
-
-    def test_excludes_missing_dimensions(self):
-        """Allowlist entries whose column is absent from the sheet are not returned."""
-        df = _make_funnel_df()
-        with (
-            patch("monthly_reports.dimension_cuts.initialise_df", return_value=df),
-            patch("monthly_reports.dimension_cuts._load_dimension_config", return_value=DIMENSION_CONFIG),
-        ):
-            from monthly_reports.dimension_cuts import get_available_dimensions
-            result = get_available_dimensions(CLIENT_BASE)
-
-        column_names = [e["column_name"] for e in result]
-        # 'Asset' and 'Campaign Group' are not in _make_funnel_df()
-        assert "Asset" not in column_names
-        assert "Campaign Group" not in column_names
-
-    def test_returns_full_config_entries(self):
-        """Each returned entry preserves all fields from dimension_config.json."""
-        df = _make_funnel_df()
-        with (
-            patch("monthly_reports.dimension_cuts.initialise_df", return_value=df),
-            patch("monthly_reports.dimension_cuts._load_dimension_config", return_value=DIMENSION_CONFIG),
-        ):
-            from monthly_reports.dimension_cuts import get_available_dimensions
-            result = get_available_dimensions(CLIENT_BASE)
-
-        for entry in result:
-            assert "column_name" in entry
-            assert "label" in entry
-            assert "requires_channel_filter" in entry
-
-    def test_empty_when_no_dimension_columns(self):
-        """Returns empty list when no allowlist columns exist in the sheet."""
-        df = pd.DataFrame({"Date": [], "Ad Channel": [], "Cost (GBP)": []})
-        with (
-            patch("monthly_reports.dimension_cuts.initialise_df", return_value=df),
-            patch("monthly_reports.dimension_cuts._load_dimension_config", return_value=DIMENSION_CONFIG),
-        ):
-            from monthly_reports.dimension_cuts import get_available_dimensions
-            result = get_available_dimensions(CLIENT_BASE)
-
-        assert result == []
-
-
 # ── get_dimension_cut tests ───────────────────────────────────────────────────
 
 class TestGetDimensionCut:
 
-    def _call(self, channel_filter=None, client_override=None):
+    def _call(self, filters=None, client_override=None):
         df = _make_funnel_df()
         client = {**CLIENT_BASE, **(client_override or {})}
         with patch("monthly_reports.dimension_cuts.initialise_df", return_value=df):
             from monthly_reports.dimension_cuts import get_dimension_cut
-            return get_dimension_cut(client, "Campaign", channel_filter)
+            return get_dimension_cut(client, "Campaign", filters)
 
     # (a) MoM date window filtering
     def test_mom_date_window(self):
@@ -156,9 +89,9 @@ class TestGetDimensionCut:
 
     # (b) Include filter
     def test_include_filter_restricts_channels(self):
-        """An include filter keeps only the specified Ad Channel rows."""
-        channel_filter = {"type": "include", "channels": ["Paid Search"]}
-        result_include = self._call(channel_filter=channel_filter)
+        """An '=' scope filter keeps only the specified Ad Channel rows."""
+        filters = [{"column": "Ad Channel", "op": "=", "value": ["Paid Search"]}]
+        result_include = self._call(filters=filters)
         result_all = self._call()
 
         # With include filter: Campaign A should show lower cost than unfiltered
@@ -169,9 +102,9 @@ class TestGetDimensionCut:
 
     # (c) Exclude filter
     def test_exclude_filter_removes_channels(self):
-        """An exclude filter drops the specified Ad Channel rows."""
-        channel_filter = {"type": "exclude", "channels": ["Paid Social"]}
-        result_exclude = self._call(channel_filter=channel_filter)
+        """A '!=' scope filter drops the specified Ad Channel rows."""
+        filters = [{"column": "Ad Channel", "op": "!=", "value": ["Paid Social"]}]
+        result_exclude = self._call(filters=filters)
         result_all = self._call()
 
         cost_excluded = float(result_exclude["Campaign A"]["Cost"]["curr"].replace("£", "").replace(",", ""))
@@ -180,10 +113,10 @@ class TestGetDimensionCut:
 
     def test_include_and_exclude_produce_same_result_when_one_channel(self):
         """Including one channel and excluding all others yields equivalent data."""
-        include_filter = {"type": "include", "channels": ["Paid Search"]}
-        exclude_filter = {"type": "exclude", "channels": ["Paid Social"]}
-        result_inc = self._call(channel_filter=include_filter)
-        result_exc = self._call(channel_filter=exclude_filter)
+        include_filter = [{"column": "Ad Channel", "op": "=", "value": ["Paid Search"]}]
+        exclude_filter = [{"column": "Ad Channel", "op": "!=", "value": ["Paid Social"]}]
+        result_inc = self._call(filters=include_filter)
+        result_exc = self._call(filters=exclude_filter)
 
         cost_inc = result_inc["Campaign A"]["Cost"]["curr"]
         cost_exc = result_exc["Campaign A"]["Cost"]["curr"]

@@ -66,7 +66,7 @@ def _stub_google_deps():
 _stub_matplotlib()
 _stub_google_deps()
 
-from monthly_reports.dimension_cuts import _apply_scope_filter
+from monthly_reports.dimension_cuts import _apply_scope_filters
 from monthly_reports.generate_visualisation import (
     _parse_val,
     build_dimension_df,
@@ -253,7 +253,10 @@ class TestBuildDimensionDfMom(unittest.TestCase):
         campaigns = set(self.df["Campaign"].tolist())
         self.assertIn("Campaign A", campaigns)
         self.assertIn("Campaign B", campaigns)
-        self.assertIn("Total", campaigns)
+
+    def test_summary_rows_dropped(self):
+        """'Total' summary rows are dropped so they can't be charted as a dimension value."""
+        self.assertNotIn("Total", self.df["Campaign"].tolist())
 
     def test_metric_columns_present(self):
         for metric in ["Cost", "Clicks", "CTR", "ROAS"]:
@@ -393,23 +396,14 @@ class TestBuildDfForSpec(unittest.TestCase):
         df = _build_df_for_spec(self.client, spec)
         self.assertNotIn("Week number (ISO)", df.columns)
 
-    def test_routes_to_baseline_when_no_data_source(self):
+    def test_raises_when_no_data_source(self):
+        """Specs without a data_source must fail loudly rather than chart the wrong data."""
         spec = {
             "dimensions": {"x": "Ad Channel"},
             "filters": "{}",
         }
-        df = _build_df_for_spec(self.client, spec)
-        self.assertIn("Ad Channel", df.columns)
-        self.assertNotIn("Campaign", df.columns)
-
-    def test_baseline_df_week_column_numeric(self):
-        spec = {
-            "dimensions": {"x": "Week number (ISO)"},
-            "filters": "{}",
-        }
-        df = _build_df_for_spec(self.client, spec)
-        if not df.empty:
-            self.assertTrue(pd.api.types.is_numeric_dtype(df["Week number (ISO)"]))
+        with self.assertRaises(ValueError):
+            _build_df_for_spec(self.client, spec)
 
     def test_filter_applied_to_dimension_df(self):
         spec = {
@@ -559,10 +553,14 @@ class TestThreePartKeyGraphRenderer(unittest.TestCase):
         self.assertNotIn("Week number (ISO)", df.columns)
 
 
-# ── Test: _apply_scope_filter ─────────────────────────────────────────────────
+# ── Test: _apply_scope_filters ────────────────────────────────────────────────
 
-class TestApplyScopeFilter(unittest.TestCase):
-    """Unit tests for dimension_cuts._apply_scope_filter."""
+class TestApplyScopeFilters(unittest.TestCase):
+    """Unit tests for dimension_cuts._apply_scope_filters.
+
+    filters is a list of {column, op, value} dicts: same-column filters are
+    OR'd together, different columns are AND'd.
+    """
 
     def setUp(self):
         self.df = pd.DataFrame({
@@ -571,49 +569,71 @@ class TestApplyScopeFilter(unittest.TestCase):
             "Cost":        [100.0,          200.0,         50.0,       75.0],
         })
 
-    def _filter(self, filter_dict, column):
-        return _apply_scope_filter(self.df.copy(), filter_dict, column)
+    def _filter(self, filters):
+        return _apply_scope_filters(self.df.copy(), filters)
 
     def test_include_channel(self):
-        result = self._filter({"type": "include", "channels": ["Paid Search"]}, "Ad Channel")
+        result = self._filter([{"column": "Ad Channel", "op": "=", "value": ["Paid Search"]}])
         self.assertEqual(len(result), 2)
         self.assertTrue((result["Ad Channel"] == "Paid Search").all())
 
     def test_exclude_channel(self):
-        result = self._filter({"type": "exclude", "channels": ["Shopping"]}, "Ad Channel")
+        result = self._filter([{"column": "Ad Channel", "op": "!=", "value": ["Shopping"]}])
         self.assertEqual(len(result), 3)
         self.assertNotIn("Shopping", result["Ad Channel"].tolist())
 
     def test_include_platform(self):
-        result = self._filter({"type": "include", "platforms": ["Google"]}, "Ad Platform")
+        result = self._filter([{"column": "Ad Platform", "op": "=", "value": ["Google"]}])
         self.assertEqual(len(result), 2)
         self.assertTrue((result["Ad Platform"] == "Google").all())
 
     def test_exclude_platform(self):
-        result = self._filter({"type": "exclude", "platforms": ["Meta"]}, "Ad Platform")
+        result = self._filter([{"column": "Ad Platform", "op": "!=", "value": ["Meta"]}])
         self.assertEqual(len(result), 3)
         self.assertNotIn("Meta", result["Ad Platform"].tolist())
 
+    def test_scalar_value_equals(self):
+        result = self._filter([{"column": "Ad Channel", "op": "=", "value": "Shopping"}])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["Ad Channel"], "Shopping")
+
+    def test_contains(self):
+        result = self._filter([{"column": "Ad Channel", "op": "contains", "value": "paid"}])
+        self.assertEqual(len(result), 3)
+        self.assertNotIn("Shopping", result["Ad Channel"].tolist())
+
+    def test_numeric_comparison(self):
+        result = self._filter([{"column": "Cost", "op": ">", "value": 90}])
+        self.assertEqual(sorted(result["Cost"].tolist()), [100.0, 200.0])
+
     def test_none_filter_returns_all_rows(self):
-        result = self._filter(None, "Ad Channel")
+        result = self._filter(None)
         self.assertEqual(len(result), 4)
 
-    def test_empty_values_list_returns_all_rows(self):
-        result = self._filter({"type": "include", "channels": []}, "Ad Channel")
+    def test_empty_filter_list_returns_all_rows(self):
+        result = self._filter([])
         self.assertEqual(len(result), 4)
 
     def test_missing_column_returns_df_unchanged(self):
-        result = self._filter({"type": "include", "platforms": ["Google"]}, "Ad Platform Not Present")
+        result = self._filter([{"column": "Not A Column", "op": "=", "value": ["Google"]}])
         self.assertEqual(len(result), 4)
 
-    def test_channel_and_platform_filters_applied_in_sequence(self):
-        df = self.df.copy()
-        df = _apply_scope_filter(df, {"type": "include", "channels": ["Paid Search"]}, "Ad Channel")
-        df = _apply_scope_filter(df, {"type": "include", "platforms": ["Google"]}, "Ad Platform")
+    def test_same_column_filters_are_ored(self):
+        result = self._filter([
+            {"column": "Ad Channel", "op": "=", "value": "Paid Social"},
+            {"column": "Ad Channel", "op": "=", "value": "Shopping"},
+        ])
+        self.assertEqual(sorted(result["Ad Channel"].tolist()), ["Paid Social", "Shopping"])
+
+    def test_different_column_filters_are_anded(self):
+        result = self._filter([
+            {"column": "Ad Channel", "op": "=", "value": ["Paid Search"]},
+            {"column": "Ad Platform", "op": "=", "value": ["Google"]},
+        ])
         # Paid Search rows: Google + Microsoft → after platform filter → Google only
-        self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]["Ad Platform"], "Google")
-        self.assertEqual(df.iloc[0]["Cost"], 100.0)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["Ad Platform"], "Google")
+        self.assertEqual(result.iloc[0]["Cost"], 100.0)
 
 
 if __name__ == "__main__":

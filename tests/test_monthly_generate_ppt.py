@@ -34,11 +34,13 @@ def prs():
 
 class TestExtractCurrentTasks:
     def test_returns_tasks_for_current_quarter(self):
+        task = {"name": "Current task", "category": "Active Workstream",
+                "start_date": "01/01/26", "end_date": "31/12/26"}
         plan = {
             "Q1 2026": {"plan_status": "old",     "tasks": [{"name": "Old task"}]},
-            "Q2 2026": {"plan_status": "current",  "tasks": [{"name": "Current task"}]},
+            "Q2 2026": {"plan_status": "current",  "tasks": [task]},
         }
-        assert _extract_current_tasks(plan) == [{"name": "Current task"}]
+        assert _extract_current_tasks(plan) == [task]
 
     def test_returns_empty_when_no_current_quarter(self):
         plan = {"Q1 2026": {"plan_status": "old", "tasks": [{"name": "Old task"}]}}
@@ -63,14 +65,26 @@ class TestExtractCurrentTasks:
         assert _extract_current_tasks(plan) == [{"name": "Task A"}]
 
     def test_picks_current_among_multiple_quarters(self):
+        task = {"name": "Current", "category": "Active Workstream",
+                "start_date": "01/01/26", "end_date": "31/12/26"}
         plan = {
             "Q4 2025": {"plan_status": "old",     "tasks": [{"name": "Old"}]},
             "Q1 2026": {"plan_status": "old",     "tasks": [{"name": "Also old"}]},
-            "Q2 2026": {"plan_status": "current",  "tasks": [{"name": "Current"}]},
+            "Q2 2026": {"plan_status": "current",  "tasks": [task]},
         }
         result = _extract_current_tasks(plan)
         assert len(result) == 1
         assert result[0]["name"] == "Current"
+
+    def test_filters_out_bau_and_undated_tasks(self):
+        """Only Active Workstream tasks overlapping the reporting month are returned."""
+        keep = {"name": "Keep", "category": "Active Workstream",
+                "start_date": "01/01/26", "end_date": "31/12/26"}
+        bau = {"name": "BAU task", "category": "BAU",
+               "start_date": "01/01/26", "end_date": "31/12/26"}
+        undated = {"name": "No dates", "category": "Active Workstream"}
+        plan = {"Q2 2026": {"plan_status": "current", "tasks": [keep, bau, undated]}}
+        assert _extract_current_tasks(plan) == [keep]
 
 
 # ── _fmt_date ─────────────────────────────────────────────────────────────────
