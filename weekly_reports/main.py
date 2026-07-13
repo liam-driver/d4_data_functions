@@ -20,7 +20,7 @@ def main():
         print(config['name'])
 
         try:
-            client = fetch_client_data(config['name'])
+            client = fetch_client_data(config)
         except:
             log_error(f"{config['name']} Report Skipped: misconfigured Paid Data")
             continue

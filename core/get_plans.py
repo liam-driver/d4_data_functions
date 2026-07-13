@@ -44,16 +44,12 @@ def _build_client_plan_from_worksheets(client_name, worksheets):
     return client_plans
 
 
-def get_client_plan(client_name: str) -> dict | None:
+def get_client_plan(client_name: str, sheet_url: str) -> dict | None:
     """Fetch the 90-day plan for a single client directly from Google Sheets."""
-    config_path = os.path.join(_PROJECT_ROOT, "storage", "config.json")
-    with open(config_path, "r") as f:
-        clients = json.load(f)
-    client = next((c for c in clients if c["name"] == client_name), None)
-    if client is None or not client.get("plan"):
+    if not sheet_url:
         return None
     sa = _auth_sheets()
-    sh = sa.open_by_url(client["plan"])
+    sh = sa.open_by_url(sheet_url)
     return _build_client_plan_from_worksheets(client_name, sh.worksheets())
 
 
@@ -199,17 +195,13 @@ def _build_client_plan_with_schedule(client_name, worksheets):
     return client_plans
 
 
-def get_client_plan_with_schedule(client_name: str) -> dict | None:
+def get_client_plan_with_schedule(sheet_url: str) -> dict | None:
     """Fetch the 90-day plan with per-week hour allocations for all task categories."""
-    config_path = os.path.join(_PROJECT_ROOT, "storage", "config.json")
-    with open(config_path, "r") as f:
-        clients = json.load(f)
-    client = next((c for c in clients if c["name"] == client_name), None)
-    if client is None or not client.get("plan"):
+    if not sheet_url:
         return None
     sa = _auth_sheets()
-    sh = sa.open_by_url(client["plan"])
-    return _build_client_plan_with_schedule(client_name, sh.worksheets())
+    sh = sa.open_by_url(sheet_url)
+    return _build_client_plan_with_schedule(sh.title, sh.worksheets())
 
 
 if __name__ == "__main__":
@@ -372,17 +364,13 @@ def _build_client_cro_plan(client_name, worksheets):
     return client_plans
 
 
-def get_client_cro_plan(client_name: str) -> dict | None:
+def get_client_cro_plan(sheet_url: str) -> dict | None:
     """Fetch the current CRO 90-day plan for a client from Google Sheets."""
-    config_path = os.path.join(_PROJECT_ROOT, "storage", "config.json")
-    with open(config_path, "r") as f:
-        clients = json.load(f)
-    client = next((c for c in clients if c["name"] == client_name), None)
-    if client is None or not client.get("cro_plan"):
+    if not sheet_url:
         return None
     sa = _auth_sheets()
-    sh = sa.open_by_url(client["cro_plan"])
-    return _build_client_cro_plan(client_name, sh.worksheets())
+    sh = sa.open_by_url(sheet_url)
+    return _build_client_cro_plan(sh.title, sh.worksheets())
 
 
 # ---------------------------------------------------------------------------
@@ -560,14 +548,10 @@ def _build_client_seo_plan(client_name: str, spreadsheet) -> dict:
     return client_plans
 
 
-def get_client_seo_plan(client_name: str) -> dict | None:
+def get_client_seo_plan(sheet_url: str) -> dict | None:
     """Fetch the SEO plan for a client using cell-colour parsing via the Sheets API."""
-    config_path = os.path.join(_PROJECT_ROOT, "storage", "config.json")
-    with open(config_path, "r") as f:
-        clients = json.load(f)
-    client = next((c for c in clients if c["name"] == client_name), None)
-    if client is None or not client.get("seo_plan"):
+    if not sheet_url:
         return None
     sa = _auth_sheets()
-    sh = sa.open_by_url(client["seo_plan"])
-    return _build_client_seo_plan(client_name, sh)
+    sh = sa.open_by_url(sheet_url)
+    return _build_client_seo_plan(sh.title, sh)

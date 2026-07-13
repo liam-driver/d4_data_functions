@@ -219,13 +219,51 @@ def _validate_client_name(client_name: str) -> None:
         raise ValueError(f"Unknown client '{client_name}'. Known clients: {known}")
 
 
+_ACCOUNT_TYPES = {"Lead Gen", "Ecommerce"}
+_COMPARISON_DATES = {"MTD Monthly Comparison", "MTD Yearly Comparison"}
+
+
+def _client_config_args(client_config: str) -> tuple[str, list]:
+    """Parse a client_config JSON string and return (client_name, CLI args) for the
+    fetch subprocesses. Required keys: name, account_type, dimension, comparison_dates.
+    Optional: plan (Google Sheets URL). account_type and comparison_dates are validated
+    against their allowed values — the fetch scripts branch on exact string matches, so
+    a near-miss would produce silently wrong data rather than an error."""
+    config = json.loads(client_config)
+    missing = [k for k in ("name", "account_type", "dimension", "comparison_dates") if not config.get(k)]
+    if missing:
+        raise ValueError(f"client_config missing required keys: {missing}")
+    if config["account_type"] not in _ACCOUNT_TYPES:
+        raise ValueError(
+            f"Invalid account_type '{config['account_type']}' — must be one of {sorted(_ACCOUNT_TYPES)} (exact match)"
+        )
+    if config["comparison_dates"] not in _COMPARISON_DATES:
+        raise ValueError(
+            f"Invalid comparison_dates '{config['comparison_dates']}' — must be one of {sorted(_COMPARISON_DATES)} (exact match)"
+        )
+    args = [
+        "--name", config["name"],
+        "--account-type", config["account_type"],
+        "--dimension", config["dimension"],
+        "--comparison-dates", config["comparison_dates"],
+    ]
+    if config.get("plan"):
+        args += ["--plan", config["plan"]]
+    return config["name"], args
+
+
 @mcp.tool()
-def fetch_client_data(client_name: str) -> str:
-    """Fetch all performance data for a client. Returns the full data JSON needed to generate commentary."""
-    _validate_client_name(client_name)
+def fetch_client_data(client_config: str) -> str:
+    """Fetch all performance data for a client. Returns the full data JSON needed to generate commentary.
+
+    client_config: JSON string built from the client's project knowledge file, e.g.
+      {"name": "FALKN", "account_type": "Ecommerce", "dimension": "Ad Channel",
+       "comparison_dates": "MTD Monthly Comparison", "plan": "https://docs.google.com/..."}
+    'plan' (the 90-day plan sheet URL) is optional; the other keys are required."""
+    client_name, config_args = _client_config_args(client_config)
     script = os.path.join(PROJECT_ROOT, "weekly_reports", "fetch_data.py")
     result = subprocess.run(
-        [sys.executable, script, "--client", client_name],
+        [sys.executable, script] + config_args,
         capture_output=True, text=True, cwd=PROJECT_ROOT
     )
     if result.returncode != 0:
@@ -236,12 +274,17 @@ def fetch_client_data(client_name: str) -> str:
 
 
 @mcp.tool()
-def fetch_monthly_client_data(client_name: str) -> str:
-    """Fetch monthly performance data for a client. Returns MoM, YoY, and 90-day timeseries as three top-level sections."""
-    _validate_client_name(client_name)
+def fetch_monthly_client_data(client_config: str) -> str:
+    """Fetch monthly performance data for a client. Returns MoM, YoY, and 90-day timeseries as three top-level sections.
+
+    client_config: JSON string built from the client's project knowledge file, e.g.
+      {"name": "FALKN", "account_type": "Ecommerce", "dimension": "Ad Channel",
+       "comparison_dates": "MTD Monthly Comparison", "plan": "https://docs.google.com/..."}
+    'plan' (the 90-day plan sheet URL) is optional; the other keys are required."""
+    client_name, config_args = _client_config_args(client_config)
     script = os.path.join(PROJECT_ROOT, "monthly_reports", "main.py")
     result = subprocess.run(
-        [sys.executable, script, "--client", client_name, "--data-only"],
+        [sys.executable, script] + config_args + ["--data-only"],
         capture_output=True, text=True, cwd=PROJECT_ROOT
     )
     if result.returncode != 0:
@@ -274,47 +317,50 @@ def fetch_monthly_client_data(client_name: str) -> str:
 
 
 @mcp.tool()
-def fetch_plan_data(client_name: str) -> str:
-    """Fetch the current 90-day plan for a client with per-week hour allocations across all
-    task categories (BAU, Active Workstream, Reporting). Used by ppc-90day-import and
+def fetch_plan_data(sheet_url: str) -> str:
+    """Fetch the current 90-day plan from its Google Sheet with per-week hour allocations across
+    all task categories (BAU, Active Workstream, Reporting). Used by ppc-90day-import and
     ppc-90day-check skills. Returns a dict keyed by sheet tab name; use the entry where
-    plan_status == 'current'. Each task includes a 'schedule' dict of {YYYY-MM-DD: hours}."""
-    _validate_client_name(client_name)
+    plan_status == 'current'. Each task includes a 'schedule' dict of {YYYY-MM-DD: hours}.
+
+    sheet_url: the plan's Google Sheets URL, read from the client's project knowledge file."""
     from core.get_plans import get_client_plan_with_schedule
-    plan = get_client_plan_with_schedule(client_name)
+    plan = get_client_plan_with_schedule(sheet_url)
     if plan is None:
-        raise Exception(f"No 90-day plan configured for client: {client_name}")
+        raise Exception(f"Could not fetch 90-day plan from sheet: {sheet_url}")
     return json.dumps(plan, ensure_ascii=False)
 
 
 @mcp.tool()
-def fetch_cro_plan_data(client_name: str) -> str:
-    """Fetch the current CRO 90-day plan for a client. Returns a dict keyed by sheet tab name;
-    use the entry where plan_status == 'current'. Task schema: name, idea, hypothesis, objective,
-    platform (workstream), facs, test_or_jdi, category (Active Workstream or BAU), status,
-    start_date, end_date, schedule ({YYYY-MM-DD: hours}). RICE fields (reach, impact, confidence,
-    effort, score) are included when present in the sheet."""
-    _validate_client_name(client_name)
+def fetch_cro_plan_data(sheet_url: str) -> str:
+    """Fetch the current CRO 90-day plan from its Google Sheet. Returns a dict keyed by sheet tab
+    name; use the entry where plan_status == 'current'. Task schema: name, idea, hypothesis,
+    objective, platform (workstream), facs, test_or_jdi, category (Active Workstream or BAU),
+    status, start_date, end_date, schedule ({YYYY-MM-DD: hours}). RICE fields (reach, impact,
+    confidence, effort, score) are included when present in the sheet.
+
+    sheet_url: the CRO plan's Google Sheets URL, read from the client's project knowledge file."""
     from core.get_plans import get_client_cro_plan
-    plan = get_client_cro_plan(client_name)
+    plan = get_client_cro_plan(sheet_url)
     if plan is None:
-        raise Exception(f"No CRO plan configured for client: {client_name}")
+        raise Exception(f"Could not fetch CRO plan from sheet: {sheet_url}")
     return json.dumps(plan, ensure_ascii=False)
 
 
 @mcp.tool()
-def fetch_seo_plan_data(client_name: str) -> str:
-    """Fetch the current SEO plan for a client using cell-colour parsing. Returns a dict keyed by
-    sheet tab name; use the entry where plan_status == 'current'. Active periods are determined by
-    #fff2cc cell background colour in the sheet. Task schema: name, desc, category (always
-    'Active Workstream'), status (inferred: Scheduled/In Progress/Complete), start_date, end_date,
-    platform (section header e.g. Tech, Content, Hygiene). No schedule dict — SEO plans have no
-    per-week hour allocations."""
-    _validate_client_name(client_name)
+def fetch_seo_plan_data(sheet_url: str) -> str:
+    """Fetch the current SEO plan from its Google Sheet using cell-colour parsing. Returns a dict
+    keyed by sheet tab name; use the entry where plan_status == 'current'. Active periods are
+    determined by #fff2cc cell background colour in the sheet. Task schema: name, desc, category
+    (always 'Active Workstream'), status (inferred: Scheduled/In Progress/Complete), start_date,
+    end_date, platform (section header e.g. Tech, Content, Hygiene). No schedule dict — SEO plans
+    have no per-week hour allocations.
+
+    sheet_url: the SEO plan's Google Sheets URL, read from the client's project knowledge file."""
     from core.get_plans import get_client_seo_plan
-    plan = get_client_seo_plan(client_name)
+    plan = get_client_seo_plan(sheet_url)
     if plan is None:
-        raise Exception(f"No SEO plan configured for client: {client_name}")
+        raise Exception(f"Could not fetch SEO plan from sheet: {sheet_url}")
     return json.dumps(plan, ensure_ascii=False)
 
 
@@ -370,15 +416,17 @@ def fetch_custom_overview_data(client_name: str, start_date: str, end_date: str)
     Matching llm_data_* and overall_data_* keys are also written. Resolved date strings are
     stored so the PPTX generator can build date labels without recomputing them.
 
-    client_name: the client name as it appears in config.json.
+    client_name: the client name used when calling fetch_monthly_client_data.
     start_date:  Custom Date Window start in YYYY-MM-DD format.
     end_date:    Custom Date Window end in YYYY-MM-DD format.
 
     Returns a JSON object listing the stored data keys and resolved date strings."""
-    _validate_client_name(client_name)
+    data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"No cached data for '{client_name}' — run fetch_monthly_client_data first")
     script = os.path.join(PROJECT_ROOT, "monthly_reports", "main.py")
     result = subprocess.run(
-        [sys.executable, script, "--client", client_name,
+        [sys.executable, script, "--name", client_name,
          "--start-date", start_date, "--end-date", end_date],
         capture_output=True, text=True, cwd=PROJECT_ROOT
     )

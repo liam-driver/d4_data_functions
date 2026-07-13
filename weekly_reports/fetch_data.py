@@ -19,19 +19,13 @@ class TimestampEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def fetch_client_data(client_name):
-    with open("storage/config.json", "r") as f:
-        clients = json.load(f)
-
-    client = next((c for c in clients if c['name'] == client_name), None)
-    if client is None:
-        raise ValueError(f"Client '{client_name}' not found in config")
-
+def fetch_client_data(client):
+    client_name = client['name']
     client = config_dates(client)
 
     try:
         if client["plan"] != "":
-            client["plan_json"] = get_client_plan(client["name"])
+            client["plan_json"] = get_client_plan(client["name"], client["plan"])
     except Exception as e:
         log_error(f"{client['name']} fetch_data: misconfigured 90 Day Plan: {e}")
         raise
@@ -101,6 +95,17 @@ def fetch_client_data(client_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--client", required=True, help="Client name as it appears in config.json")
+    parser.add_argument("--name", required=True, help="Client name")
+    parser.add_argument("--account-type", required=True, help="'Lead Gen' or 'Ecommerce'")
+    parser.add_argument("--dimension", required=True, help="Breakdown dimension, e.g. 'Ad Channel'")
+    parser.add_argument("--comparison-dates", required=True,
+                        help="'MTD Monthly Comparison' or 'MTD Yearly Comparison'")
+    parser.add_argument("--plan", default="", help="Google Sheets URL of the 90-day plan")
     args = parser.parse_args()
-    fetch_client_data(args.client)
+    fetch_client_data({
+        "name": args.name,
+        "account_type": args.account_type,
+        "dimension": args.dimension,
+        "comparison_dates": args.comparison_dates,
+        "plan": args.plan,
+    })

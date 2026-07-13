@@ -50,15 +50,10 @@ def config_monthly_dates(client):
             mtd_start_date, mtd_end_date, compare_start_mtd, compare_end_mtd)
 
 
-def run_monthly_report(client_name, data_only=False):
+def run_monthly_report(client, data_only=False):
     os.makedirs("charts", exist_ok=True)
 
-    with open("storage/config.json", "r") as f:
-        clients = json.load(f)
-
-    client = next((c for c in clients if c['name'] == client_name), None)
-    if client is None:
-        raise ValueError(f"Client '{client_name}' not found in config")
+    client_name = client['name']
 
     (start_date, end_date, compare_start_mom, compare_end_mom,
      compare_start_yoy, compare_end_yoy,
@@ -72,7 +67,7 @@ def run_monthly_report(client_name, data_only=False):
     if client.get("plan"):
         try:
             from core.get_plans import get_client_plan
-            client["plan_json"] = get_client_plan(client["name"])
+            client["plan_json"] = get_client_plan(client["name"], client["plan"])
         except Exception as e:
             log_error(f"{client['name']} monthly_reports/main: 90 Day Plan fetch failed: {e}")
             raise
@@ -164,15 +159,6 @@ def run_custom_overview_fetch(client_name, start_date_str, end_date_str):
     with open(data_path, "r", encoding="utf-8") as f:
         client = json.load(f)
 
-    with open("storage/config.json", "r") as f:
-        clients = json.load(f)
-    config = next((c for c in clients if c["name"] == client_name), None)
-    if config is None:
-        raise ValueError(f"Client '{client_name}' not found in config")
-    for k, v in config.items():
-        if k not in client:
-            client[k] = v
-
     current_start = pd.Timestamp(start_date_str).normalize()
     current_end   = pd.Timestamp(end_date_str).normalize()
     num_days      = (current_end - current_start).days + 1
@@ -224,7 +210,12 @@ def run_custom_overview_fetch(client_name, start_date_str, end_date_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--client", required=True, help="Client name as it appears in config.json")
+    parser.add_argument("--name", required=True, help="Client name")
+    parser.add_argument("--account-type", default=None, help="'Lead Gen' or 'Ecommerce'")
+    parser.add_argument("--dimension", default=None, help="Breakdown dimension, e.g. 'Ad Channel'")
+    parser.add_argument("--comparison-dates", default=None,
+                        help="'MTD Monthly Comparison' or 'MTD Yearly Comparison'")
+    parser.add_argument("--plan", default="", help="Google Sheets URL of the 90-day plan")
     parser.add_argument("--data-only", action="store_true", help="Fetch and save data only, skip PPT generation")
     parser.add_argument("--start-date", default=None, help="Custom Date Window start (YYYY-MM-DD). Requires --end-date.")
     parser.add_argument("--end-date",   default=None, help="Custom Date Window end (YYYY-MM-DD). Requires --start-date.")
@@ -232,6 +223,14 @@ if __name__ == "__main__":
     if args.start_date or args.end_date:
         if not (args.start_date and args.end_date):
             parser.error("--start-date and --end-date must be provided together")
-        run_custom_overview_fetch(args.client, args.start_date, args.end_date)
+        run_custom_overview_fetch(args.name, args.start_date, args.end_date)
     else:
-        run_monthly_report(args.client, data_only=args.data_only)
+        if not (args.account_type and args.dimension):
+            parser.error("--account-type and --dimension are required for a monthly report run")
+        run_monthly_report({
+            "name": args.name,
+            "account_type": args.account_type,
+            "dimension": args.dimension,
+            "comparison_dates": args.comparison_dates,
+            "plan": args.plan,
+        }, data_only=args.data_only)
