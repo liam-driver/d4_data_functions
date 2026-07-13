@@ -43,8 +43,8 @@ A single coloured box within a Scorecard Slide showing one metric's `curr`, `pre
 _Avoid_: "stat box", "metric card"
 
 **Organic Overview**:
-A scorecard slide covering Organic Search performance from `overall_data` (GA4), filtered to the `"Organic Search"` Channel row. Metrics: Sessions, Conversions (Lead Gen) or Transaction Revenue (Ecommerce), and Conversion Rate. Rendered as its own navy-separated section after the 90-day plan Gantt. Included per-run when requested.
-_Avoid_: SEO slide, organic traffic slide
+A scorecard slide covering Organic Search performance from `overall_data` (GA4), filtered to the `"Organic Search"` Channel row. Metrics: Sessions, Conversions (Lead Gen) or Transaction Revenue (Ecommerce), and Conversion Rate. Rendered inside the **SEO** team section, alongside the SEO team's Kanban and Gantt.
+_Avoid_: "SEO Overview", "organic traffic slide" — the slide type is always "Organic Overview" (it's GA4 organic-search data, not SEO deliverables), even though it lives inside the section labelled "SEO". Do not use "Organic Overview" and "SEO" interchangeably as slide names — "SEO" is the correct name for the containing team section only.
 
 **CRO Overview**:
 A scorecard slide covering site-wide conversion performance from `overall_data` (GA4), using the `"Total"` Channel row. Metrics: Sessions, Conversion Rate, and AOV (Ecommerce only). Rendered as its own navy-separated section after the Organic section. Included per-run when requested.
@@ -56,7 +56,7 @@ _Avoid_: conversion slide, site-wide overview
 A per-client email report covering the current week vs a comparison period, generated via the MCP tool `fetch_client_data` and sent via `send_weekly_report`.
 
 **Monthly Report**:
-A per-client PowerPoint deck covering the previous full calendar month, with MoM, YoY, and MTD comparison passes, generated via `generate_monthly_pptx`. Every run produces two versions: the **Detailed Deck** and the **Presentation Deck**.
+A per-client PowerPoint deck covering the previous full calendar month, with MoM, YoY, and MTD comparison passes, built in two phases by two skills — see **Monthly Report Skeleton** and **Monthly Report Insights**. Every final run produces two versions: the **Detailed Deck** and the **Presentation Deck**.
 
 **Detailed Deck**:
 The pre-meeting version of the Monthly Report, sent to the client before the review session. Slides contain a headline summary (up to one data point) plus 3–6 metric-backed bullets. Filename: `{client}_monthly_{YYYY_MM}.pptx`.
@@ -64,6 +64,20 @@ The pre-meeting version of the Monthly Report, sent to the client before the rev
 **Presentation Deck**:
 The in-room version of the Monthly Report, used by the presenter during the client meeting. Same structure as the Detailed Deck but bullets are narrative-only — no data points — and capped at 3. The headline summary is unchanged. Filename: `{client}_monthly_{YYYY_MM}_presentation.pptx`.
 _Avoid_: "clean version", "presenter copy", "lite deck"
+
+**Team**:
+One of the three delivery groups covered by the Monthly Report: **PPC**, **SEO**, **CRO**. Each Team has its own 90-Day Plan (see PPC/SEO/CRO 90-Day Plan), its own Action Kanban, its own Gantt, and its own Overview scorecard slide. A client may have any subset of the three Teams active, detected from which plan URLs are present in their Client Context File.
+_Avoid_: "vertical", "workstream" (Workstream already means something narrower — a category of plan task)
+
+**Monthly Report Skeleton**:
+The first phase of building a Monthly Report, run by the **Client Services** team via the `d4-monthly-skeleton` skill. Produces the deck's structural sections for every active Team — a section separator, Overview scorecard(s), Action Kanban, and Gantt — with real LLM-written overview commentary, but no Top Level Trends. Calls `generate_skeleton_pptx`, which renders a real draft PPTX (both Detailed and Presentation variants) for review and persists the confirmed content to `storage/{client}_skeleton_content.json` as the checkpoint the Insights phase builds on.
+_Avoid_: "skeleton report", "draft deck" on its own (always qualify as "the skeleton draft")
+
+**Monthly Report Insights**:
+The second phase of building a Monthly Report, run via the `ppc-monthly-report-insights` skill. Works slide-by-slide through PPC trend topics (see Data Cut) exactly as the old `ppc-monthly-report` skill's Phase 2–4 did, then calls `generate_monthly_pptx` with only the confirmed `trends`. The server loads the cached **Monthly Report Skeleton** checkpoint, slots the trends into the PPC Team's section, and renders the final Detailed and Presentation Decks. Requires the Skeleton phase to have already run for that client this month — there is no flat, single-call path anymore.
+
+**Client Services**:
+The team that owns the Monthly Report Skeleton phase — confirms which Teams are active, which comparison windows to use, and reviews the structural draft deck before Insights adds PPC trend slides. Distinct from the performance marketers who run Insights.
 
 **Traps & Tripwires**:
 An automated health-check report that runs budget pacing, conversion tracking, and platform-specific checks across all clients, delivered to Slack.

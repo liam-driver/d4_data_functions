@@ -111,7 +111,7 @@ def client_block(client: dict) -> str:
             "When calling fetch_plan_data (PPC), fetch_cro_plan_data (CRO), or\n"
             "fetch_seo_plan_data (SEO), pass the relevant URL as sheet_url.\n"
             "Weekly reports use the PPC plan only; CRO and SEO plans are for\n"
-            "the monthly report."
+            "the Monthly Report Skeleton (d4-monthly-skeleton)."
         )
         lines.append("")
         lines.append("Plans:")

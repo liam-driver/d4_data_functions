@@ -18,7 +18,6 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml.ns import qn
 from PIL import Image
-from core.generate_commentary import generate_monthly_slide_content, generate_mtd_slide_content
 from core.get_funnel_data import fmt_int, fmt_pct, fmt_gbp
 from monthly_reports.generate_visualisation import render_graph, initialise_brand, BRAND
 from monthly_reports.generate_data_export import export_slide_data
@@ -1442,10 +1441,45 @@ def _render_trend_slide(prs, client, trend, bullet_key='bullets'):
 
 # ── PIPELINE ORCHESTRATOR ─────────────────────────────────────────────────────
 
-def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
-    """Build a single PPTX from slide content, selecting bullets by bullet_key."""
-    prev_month = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B")
+# Teams appear in the deck in this fixed order regardless of the order they were
+# confirmed in. Only teams present in teams_content['teams'] get a section at all.
+_TEAM_ORDER = ['ppc', 'seo', 'cro']
+_TEAM_SECTION_LABEL = {'ppc': 'Paid Media', 'seo': 'SEO', 'cro': 'CRO'}
 
+
+def _overview_defaults(data_key):
+    if data_key == 'organic_data':
+        return 'Organic Performance', 'Organic Performance'
+    if data_key == 'cro_data':
+        return 'CRO Overview', 'CRO Overview'
+    return 'Performance Overview', 'Performance'
+
+
+def _render_team_overviews(prs, client, overviews, bullet_key):
+    for item in overviews:
+        default_section_title, default_title = _overview_defaults(item['data_key'])
+        template      = item.get('template', 'scorecard_vertical')
+        kpis          = _kpis_for_overview(client, item)
+        date_label    = _resolve_overview_date_label(client, item)
+        section_title = item.get('section_title', default_section_title)
+        title         = item.get('title', default_title)
+        summary       = item.get('summary', '')
+        bullets       = item.get(bullet_key, item.get('bullets', []))
+        slide_section_separator(prs, section_title, variant='gold')
+        if kpis:
+            _render_overview_slide(prs, client, template, title=title, summary=summary,
+                                   bullets=bullets, kpis=kpis, date_label=date_label)
+        else:
+            print(f"WARNING: No KPI data found for data_key='{item['data_key']}' — rendering commentary-only slide.")
+            slide_commentary(prs, title, summary, bullets)
+
+
+def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
+    """Build a single PPTX from confirmed Team content, selecting bullets by bullet_key.
+
+    teams_content['teams'] is a list of {team, overviews, plan_json, trends (ppc only)}
+    blocks — see ADR 0012. Used for both the Monthly Report Skeleton draft (no trends)
+    and the final deck (ppc block carries trends merged in by generate_ppt)."""
     template_path = os.path.join(PROJECT_ROOT, "slides", "template.pptx")
     shutil.copy(template_path, output_path)
     prs = Presentation(output_path)
@@ -1455,72 +1489,32 @@ def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
     prs.slides._sldIdLst.remove(prs.slides._sldIdLst[0])
 
     slide_cover(prs, f'{client["name"]} Monthly Deck')
-    slide_section_separator(prs, 'Paid Media', variant='navy')
 
-    # ── Overview Slides ───────────────────────────────────────────────────────
-    # Driven by sc['overviews']: a list of items each specifying data_key, section_title,
-    # title, template, comparison, kpi_count, summary, and bullets.
-    for item in sc.get('overviews', []):
-        template     = item.get('template', 'scorecard_vertical')
-        kpis         = _kpis_for_overview(client, item)
-        date_label   = _resolve_overview_date_label(client, item)
-        section_title = item.get('section_title', 'Performance Overview')
-        title        = item.get('title', 'Performance')
-        summary      = item.get('summary', '')
-        bullets      = item.get(bullet_key, item.get('bullets', []))
-        slide_section_separator(prs, section_title, variant='gold')
-        _render_overview_slide(prs, client, template, title=title, summary=summary,
-                               bullets=bullets, kpis=kpis, date_label=date_label)
+    teams_by_key = {block['team']: block for block in teams_content.get('teams', [])}
+    for team in _TEAM_ORDER:
+        block = teams_by_key.get(team)
+        if not block:
+            continue
 
-    # ── Trend Slides ─────────────────────────────────────────────────────────
-    slide_section_separator(prs, 'Top Level Trends', variant='gold')
-    for trend in sc['trends']:
-        _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
+        slide_section_separator(prs, _TEAM_SECTION_LABEL[team], variant='navy')
+        _render_team_overviews(prs, client, block.get('overviews', []), bullet_key)
 
-    slide_section_separator(prs, 'Plan Overview', variant='gold')
-    plan_json = client.get('plan_json')
-    current_tasks = _extract_current_tasks(plan_json) if plan_json else []
-    if current_tasks:
-        slide_action_kanban(prs, 'Plan Overview', current_tasks)
-    all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json) if plan_json else ([], None, None)
-    if all_tasks:
-        slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
+        if team == 'ppc':
+            trends = block.get('trends', [])
+            if trends:
+                slide_section_separator(prs, 'Top Level Trends', variant='gold')
+                for trend in trends:
+                    _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
 
-    # ── Organic Section ───────────────────────────────────────────────────────
-    organic_overviews = sc.get('organic_overviews', [])
-    if organic_overviews:
-        slide_section_separator(prs, 'Organic', variant='navy')
-        for item in organic_overviews:
-            template      = item.get('template', 'scorecard_vertical')
-            kpis          = _kpis_for_overview(client, item)
-            date_label    = _resolve_overview_date_label(client, item)
-            section_title = item.get('section_title', 'Organic Performance')
-            title         = item.get('title', 'Organic Performance')
-            summary       = item.get('summary', '')
-            _bullets      = item.get(bullet_key, item.get('bullets', []))
-            slide_section_separator(prs, section_title, variant='gold')
-            if kpis:
-                _render_overview_slide(prs, client, template, title=title, summary=summary,
-                                       bullets=_bullets, kpis=kpis, date_label=date_label)
-            else:
-                print(f"WARNING: No 'Organic Search' data found in overall_data — organic overview slide skipped.")
-                slide_commentary(prs, title, summary, _bullets)
-
-    # ── CRO Section ───────────────────────────────────────────────────────────
-    cro_overviews = sc.get('cro_overviews', [])
-    if cro_overviews:
-        slide_section_separator(prs, 'CRO', variant='navy')
-        for item in cro_overviews:
-            template      = item.get('template', 'scorecard_vertical')
-            kpis          = _kpis_for_overview(client, item)
-            date_label    = _resolve_overview_date_label(client, item)
-            section_title = item.get('section_title', 'CRO Overview')
-            title         = item.get('title', 'CRO Overview')
-            summary       = item.get('summary', '')
-            _bullets      = item.get(bullet_key, item.get('bullets', []))
-            slide_section_separator(prs, section_title, variant='gold')
-            _render_overview_slide(prs, client, template, title=title, summary=summary,
-                                   bullets=_bullets, kpis=kpis, date_label=date_label)
+        plan_json     = block.get('plan_json')
+        current_tasks = _extract_current_tasks(plan_json) if plan_json else []
+        all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json) if plan_json else ([], None, None)
+        if current_tasks or all_tasks:
+            slide_section_separator(prs, 'Plan Overview', variant='gold')
+            if current_tasks:
+                slide_action_kanban(prs, 'Plan Overview', current_tasks)
+            if all_tasks:
+                slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
 
     month_year   = datetime.strptime(client['start_date_string'], "%d/%m/%Y").strftime("%B %Y")
     footer_label = f"{_strip_parenthetical(client['name'])} | {month_year}"
@@ -1531,24 +1525,65 @@ def _assemble_pptx(client, sc, output_path, bullet_key='bullets'):
     return output_path
 
 
-def generate_ppt(client_name, output_path=None, slide_content=None):
+def _load_client_data(client_name):
     data_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_data.json")
     if not os.path.exists(data_path):
         raise FileNotFoundError(
             f"No monthly data file found for '{client_name}'. "
-            f"Run: python -m monthly_reports.main --client \"{client_name}\""
+            f"Run fetch_monthly_client_data first."
         )
     with open(data_path, "r", encoding="utf-8") as f:
-        client = json.load(f)
+        return json.load(f)
 
-    if slide_content is None:
-        slide_content = generate_monthly_slide_content(client)
-        mtd_content = generate_mtd_slide_content(client)
-        slide_content = {**slide_content, **mtd_content}
-    client['slide_content'] = slide_content
+
+def _skeleton_content_path(client_name):
+    return os.path.join(PROJECT_ROOT, "storage", f"{client_name}_skeleton_content.json")
+
+
+def generate_skeleton_ppt(client_name, teams_content, output_path=None):
+    """Build the Monthly Report Skeleton draft — overview, Action Kanban, and Gantt for
+    every active Team, no trends — and persist teams_content as the checkpoint that
+    generate_ppt later merges PPC trends into. See ADR 0012."""
+    client = _load_client_data(client_name)
+
+    with open(_skeleton_content_path(client_name), "w", encoding="utf-8") as f:
+        json.dump(teams_content, f, ensure_ascii=False, indent=2)
+
+    if output_path is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        output_path = os.path.join(PROJECT_ROOT, "slides", f"{client_name}_monthly_{timestamp}_skeleton.pptx")
+    base, ext = os.path.splitext(output_path)
+    presentation_path = f"{base}_presentation{ext}"
+
+    _assemble_pptx(client, teams_content, output_path, bullet_key='bullets')
+    _assemble_pptx(client, teams_content, presentation_path, bullet_key='bullets_presentation')
+
+    return output_path, presentation_path
+
+
+def generate_ppt(client_name, output_path=None, slide_content=None):
+    """Build the final Monthly Report by merging ppc-monthly-report-insights' confirmed
+    `trends` into the cached Monthly Report Skeleton checkpoint for this client."""
+    client = _load_client_data(client_name)
+
+    checkpoint_path = _skeleton_content_path(client_name)
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"No Monthly Report Skeleton checkpoint found for '{client_name}'. "
+            f"Run d4-monthly-skeleton before ppc-monthly-report-insights."
+        )
+    with open(checkpoint_path, "r", encoding="utf-8") as f:
+        teams_content = json.load(f)
+
+    trends       = (slide_content or {}).get('trends', [])
+    teams_by_key = {block['team']: block for block in teams_content.get('teams', [])}
+    if 'ppc' not in teams_by_key:
+        raise ValueError(f"Skeleton checkpoint for '{client_name}' has no PPC team block — cannot attach trends.")
+    teams_by_key['ppc']['trends'] = trends
+
     content_path = os.path.join(PROJECT_ROOT, "storage", f"{client_name}_monthly_content.json")
     with open(content_path, "w", encoding="utf-8") as f:
-        json.dump(client['slide_content'], f, ensure_ascii=False, indent=2)
+        json.dump(teams_content, f, ensure_ascii=False, indent=2)
 
     if output_path is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -1557,11 +1592,10 @@ def generate_ppt(client_name, output_path=None, slide_content=None):
     base, ext = os.path.splitext(output_path)
     presentation_path = f"{base}_presentation{ext}"
 
-    sc = client['slide_content']
-    _assemble_pptx(client, sc, output_path, bullet_key='bullets')
-    _assemble_pptx(client, sc, presentation_path, bullet_key='bullets_presentation')
+    _assemble_pptx(client, teams_content, output_path, bullet_key='bullets')
+    _assemble_pptx(client, teams_content, presentation_path, bullet_key='bullets_presentation')
 
-    excel_path = export_slide_data(client, sc, output_path)
+    excel_path = export_slide_data(client, {'trends': trends}, output_path)
     if excel_path:
         print(f"Saved data export to {excel_path}")
 

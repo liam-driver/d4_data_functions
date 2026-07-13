@@ -589,20 +589,69 @@ def preview_graph(client_name: str, graph_spec: str) -> list:
     return [ImageContent(type="image", data=image_data, mimeType="image/png")]
 
 
+def _cleanup_old_slides(client_name: str, protected: set) -> None:
+    """Remove generated deck/export files older than 7 days to avoid unbounded storage growth."""
+    slides_dir = os.path.join(PROJECT_ROOT, "slides")
+    cutoff = time.time() - 7 * 86400
+    for pattern in (f"{client_name}_monthly_*.pptx", f"{client_name}_monthly_*_data.xlsx"):
+        for old_file in _glob.glob(os.path.join(slides_dir, pattern)):
+            if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) not in protected:
+                try:
+                    os.remove(old_file)
+                except OSError:
+                    pass
+
+
+@mcp.tool()
+def generate_skeleton_pptx(client_name: str, teams_content: str) -> str:
+    """Generate the Monthly Report Skeleton draft for a client: one section per active Team
+    (PPC/SEO/CRO), each with its Overview scorecard(s), Action Kanban, and Gantt. No trend
+    slides — those are added later by ppc-monthly-report-insights. Persists teams_content
+    server-side as the checkpoint that generate_monthly_pptx merges confirmed PPC trends into
+    (see ADR 0012 — the two skills may run in entirely separate chat sessions).
+
+    teams_content must be a JSON string: {"teams": [{"team": "ppc"|"seo"|"cro", "overviews":
+    [...], "plan_json": {...}}, ...]}. Only include a block for each Team confirmed active for
+    this client this run — a Team with no plan URL in the client's Client Context File should be
+    omitted entirely, not included with empty data. "overviews" items use the existing overview
+    item shape (data_key, section_title, title, summary, bullets, bullets_presentation, template,
+    kpi_count, comparison) — PPC may have several (previous-month, MTD, custom windows); SEO
+    ('organic_data') and CRO ('cro_data') each take exactly one. "plan_json" is the unmodified
+    response from fetch_plan_data (ppc), fetch_seo_plan_data (seo), or fetch_cro_plan_data (cro).
+
+    Always produces two draft decks (Detailed and Presentation). Returns a JSON object with
+    'path', 'download_url', 'presentation_path', and 'presentation_download_url'."""
+    _validate_client_name(client_name)
+    from monthly_reports.generate_ppt import generate_skeleton_ppt
+    content = json.loads(teams_content)
+    output_path, presentation_path = generate_skeleton_ppt(client_name, content)
+    filename = os.path.basename(output_path)
+    presentation_filename = os.path.basename(presentation_path)
+
+    _cleanup_old_slides(client_name, {os.path.abspath(output_path), os.path.abspath(presentation_path)})
+
+    return json.dumps({
+        "path": output_path,
+        "download_url": f"{ISSUER_URL}/files/{filename}",
+        "presentation_path": presentation_path,
+        "presentation_download_url": f"{ISSUER_URL}/files/{presentation_filename}",
+    }, ensure_ascii=False)
+
+
 @mcp.tool()
 def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
-    """Generate the monthly PPTX for a client from pre-generated slide content.
-    slide_content must be a JSON string with keys: overviews (list of paid overview slide
-    items — each with data_key, section_title, title, summary, bullets,
-    bullets_presentation, template, kpi_count, comparison), organic_overviews (optional
-    list — single item with data_key='organic_data'; omit key entirely when not requested),
-    cro_overviews (optional list — single item with data_key='cro_data'; omit key entirely
-    when not requested), trends (list of title/summary/bullets/bullets_presentation/graph
-    objects), and actions (list of task/summary/status objects). Organic and CRO sections
-    are rendered after the 90-day plan Gantt. Always produces two decks: a detailed deck
-    (full metric bullets) and a presentation deck (narrative-only bullets, data-free).
-    Returns a JSON object with 'path', 'download_url', 'presentation_path', and
-    'presentation_download_url' — share both download URLs with the user."""
+    """Generate the final monthly PPTX for a client by merging confirmed PPC trend slides
+    into the cached Monthly Report Skeleton checkpoint. Requires generate_skeleton_pptx to
+    have already run for this client this month — raises an error if no checkpoint exists.
+
+    slide_content must be a JSON string with a single key: trends (list of
+    title/summary/bullets/bullets_presentation/graph objects for the PPC section — see
+    ADR 0012). The Skeleton's Team overviews, Action Kanbans, and Gantts (PPC/SEO/CRO) are
+    loaded from the checkpoint unchanged; trends are slotted into the PPC section between its
+    overview(s) and its Kanban/Gantt. Always produces two decks: a detailed deck (full metric
+    bullets) and a presentation deck (narrative-only bullets, data-free). Returns a JSON object
+    with 'path', 'download_url', 'presentation_path', and 'presentation_download_url' — share
+    both download URLs with the user."""
     _validate_client_name(client_name)
     from monthly_reports.generate_ppt import generate_ppt
     content = json.loads(slide_content)
@@ -612,21 +661,12 @@ def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
     download_url = f"{ISSUER_URL}/files/{filename}"
     presentation_download_url = f"{ISSUER_URL}/files/{presentation_filename}"
 
-    # Clean up generated files older than 7 days to avoid unbounded storage growth.
-    slides_dir = os.path.join(PROJECT_ROOT, "slides")
-    cutoff = time.time() - 7 * 86400
     protected = {
         os.path.abspath(output_path),
         os.path.abspath(presentation_path),
         os.path.abspath(excel_path) if excel_path else "",
     }
-    for pattern in (f"{client_name}_monthly_*.pptx", f"{client_name}_monthly_*_data.xlsx"):
-        for old_file in _glob.glob(os.path.join(slides_dir, pattern)):
-            if os.path.getmtime(old_file) < cutoff and os.path.abspath(old_file) not in protected:
-                try:
-                    os.remove(old_file)
-                except OSError:
-                    pass
+    _cleanup_old_slides(client_name, protected)
 
     result = {
         "path": output_path,

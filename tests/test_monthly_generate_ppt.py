@@ -2,18 +2,27 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import json
+import shutil
+
 import pytest
 from pptx import Presentation
 from pptx.util import Inches
 
+import monthly_reports.generate_ppt as generate_ppt_module
 from monthly_reports.generate_ppt import (
     C,
     STATUS_COLOURS,
     SLD_LAYOUT_BLANK,
+    SLD_LAYOUT_SECTION_SEPARATOR,
+    SLD_LAYOUT_SUNSET_SECTION_SEPARATOR,
     SLD_LAYOUT_TITLE_AND_BODY,
     _extract_current_tasks,
     _add_table_shape,
     _fmt_date,
+    _assemble_pptx,
+    generate_skeleton_ppt,
+    generate_ppt,
     slide_planning_gantt,
     slide_scorecard_commentary,
 )
@@ -233,3 +242,184 @@ class TestSlideScorecardCommentary:
             prs, 'Top Level View', 'Good month', [{'point': 'Revenue up'}], self._make_kpis()
         )
         assert slide is not None
+
+
+# ── _assemble_pptx (Team-based skeleton/final assembly, ADR 0012) ─────────────
+
+def _plan_json(task_name):
+    return {
+        "Q1 2026": {
+            "plan_status": "current",
+            "plan_start": "01/01/26",
+            "plan_end": "31/03/26",
+            "tasks": [
+                {"name": task_name, "category": "Active Workstream", "platform": "Google Ads",
+                 "start_date": "01/01/26", "end_date": "31/01/26", "status": "Scheduled"},
+            ],
+        }
+    }
+
+
+def _separator_titles(prs, layout_idx):
+    layout = prs.slide_layouts[layout_idx]
+    return [slide.placeholders[0].text for slide in prs.slides if slide.slide_layout == layout]
+
+
+def _all_slide_text(prs):
+    return ' '.join(
+        run.text
+        for slide in prs.slides
+        for shp in slide.shapes if shp.has_text_frame
+        for p in shp.text_frame.paragraphs
+        for run in p.runs
+    )
+
+
+class TestAssemblePptxTeams:
+    def _client(self):
+        return {
+            "name": "Acme",
+            "start_date_string": "01/04/2026",
+            "end_date_string": "30/04/2026",
+            "account_type": "Ecommerce",
+            "paid_data_mom": {"Total": {
+                "Cost":               {"curr": "£1,000", "prev": "£900",   "pct": "+11%"},
+                "Transaction Revenue": {"curr": "£5,000", "prev": "£4,000", "pct": "+25%"},
+                "ROAS":               {"curr": "5.0",    "prev": "4.5",   "pct": "+11%"},
+                "Conversion Rate":    {"curr": "2%",     "prev": "1.8%",  "pct": "+11%"},
+            }},
+        }
+
+    def _teams_content(self, include_trends=False):
+        ppc_block = {
+            "team": "ppc",
+            "overviews": [{"data_key": "paid_data", "comparison": "mom"}],
+            "plan_json": _plan_json("PPC Task"),
+        }
+        if include_trends:
+            ppc_block["trends"] = [{
+                "title": "Paid Search Grows", "summary": "ROAS improves",
+                "bullets": [{"point": "ROAS up"}], "graph": {},
+            }]
+        seo_block = {"team": "seo", "overviews": [], "plan_json": _plan_json("SEO Task")}
+        cro_block = {"team": "cro", "overviews": [], "plan_json": _plan_json("CRO Task")}
+        return {"teams": [ppc_block, seo_block, cro_block]}
+
+    def test_renders_navy_section_per_active_team_in_order(self, tmp_path):
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(), output_path)
+        prs = Presentation(output_path)
+        assert _separator_titles(prs, SLD_LAYOUT_SECTION_SEPARATOR) == ['Paid Media', 'SEO', 'CRO']
+
+    def test_skips_team_with_no_block(self, tmp_path):
+        teams_content = self._teams_content()
+        teams_content['teams'] = [t for t in teams_content['teams'] if t['team'] != 'seo']
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), teams_content, output_path)
+        prs = Presentation(output_path)
+        assert _separator_titles(prs, SLD_LAYOUT_SECTION_SEPARATOR) == ['Paid Media', 'CRO']
+
+    def test_top_level_trends_omitted_when_ppc_has_no_trends(self, tmp_path):
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(include_trends=False), output_path)
+        prs = Presentation(output_path)
+        assert 'Top Level Trends' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+
+    def test_top_level_trends_rendered_when_ppc_has_trends(self, tmp_path):
+        output_path = str(tmp_path / "final.pptx")
+        _assemble_pptx(self._client(), self._teams_content(include_trends=True), output_path)
+        prs = Presentation(output_path)
+        assert 'Top Level Trends' in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+
+    def test_only_ppc_ever_renders_trends_section(self, tmp_path):
+        """SEO/CRO never get a Top Level Trends section, even if trends were injected there."""
+        teams_content = self._teams_content()
+        teams_content['teams'][1]['trends'] = [
+            {"title": "x", "summary": "y", "bullets": [], "graph": {}}
+        ]
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), teams_content, output_path)
+        prs = Presentation(output_path)
+        assert 'Top Level Trends' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+
+    def test_each_team_gets_its_own_kanban_and_gantt(self, tmp_path):
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(), output_path)
+        prs = Presentation(output_path)
+        all_text = _all_slide_text(prs)
+        assert 'Google Ads: PPC Task' in all_text
+        assert 'Google Ads: SEO Task' in all_text
+        assert 'Google Ads: CRO Task' in all_text
+
+    def test_team_with_no_plan_tasks_gets_no_plan_overview_section(self, tmp_path):
+        teams_content = {"teams": [{"team": "ppc", "overviews": [], "plan_json": None}]}
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), teams_content, output_path)
+        prs = Presentation(output_path)
+        assert 'Plan Overview' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+
+
+# ── generate_skeleton_ppt / generate_ppt orchestration (ADR 0012) ─────────────
+
+@pytest.fixture
+def isolated_project(tmp_path, monkeypatch):
+    (tmp_path / "storage").mkdir()
+    (tmp_path / "slides").mkdir()
+    shutil.copy("slides/template.pptx", tmp_path / "slides" / "template.pptx")
+    monkeypatch.setattr(generate_ppt_module, "PROJECT_ROOT", str(tmp_path))
+    return tmp_path
+
+
+def _write_client_data(project_dir, client_name="Acme"):
+    data = {
+        "name": client_name,
+        "start_date_string": "01/04/2026",
+        "end_date_string": "30/04/2026",
+        "account_type": "Ecommerce",
+        "paid_data_mom": {"Total": {"Cost": {"curr": "£1,000", "prev": "£900", "pct": "+11%"}}},
+    }
+    with open(project_dir / "storage" / f"{client_name}_monthly_data.json", "w") as f:
+        json.dump(data, f)
+    return data
+
+
+class TestGenerateSkeletonPpt:
+    def test_raises_if_no_client_data(self, isolated_project):
+        with pytest.raises(FileNotFoundError):
+            generate_skeleton_ppt("NoSuchClient", {"teams": []})
+
+    def test_persists_checkpoint_and_builds_both_draft_variants(self, isolated_project):
+        _write_client_data(isolated_project)
+        teams_content = {"teams": [{"team": "ppc", "overviews": [], "plan_json": None}]}
+        output_path, presentation_path = generate_skeleton_ppt(
+            "Acme", teams_content, output_path=str(isolated_project / "slides" / "skeleton.pptx")
+        )
+        assert os.path.exists(output_path)
+        assert os.path.exists(presentation_path)
+        checkpoint_path = isolated_project / "storage" / "Acme_skeleton_content.json"
+        assert json.loads(checkpoint_path.read_text()) == teams_content
+
+
+class TestGenerateFinalPpt:
+    def _write_checkpoint(self, project_dir, client_name="Acme"):
+        teams_content = {"teams": [{"team": "ppc", "overviews": [], "plan_json": None}]}
+        with open(project_dir / "storage" / f"{client_name}_skeleton_content.json", "w") as f:
+            json.dump(teams_content, f)
+
+    def test_raises_if_no_skeleton_checkpoint(self, isolated_project):
+        _write_client_data(isolated_project)
+        with pytest.raises(FileNotFoundError):
+            generate_ppt("Acme", slide_content={"trends": []})
+
+    def test_merges_trends_into_ppc_block(self, isolated_project):
+        _write_client_data(isolated_project)
+        self._write_checkpoint(isolated_project)
+        trends = [{"title": "t", "summary": "s", "bullets": [], "graph": {}}]
+
+        output_path, presentation_path, excel_path = generate_ppt("Acme", slide_content={"trends": trends})
+
+        assert os.path.exists(output_path)
+        assert os.path.exists(presentation_path)
+        saved = json.loads((isolated_project / "storage" / "Acme_monthly_content.json").read_text())
+        ppc_block = next(b for b in saved["teams"] if b["team"] == "ppc")
+        assert ppc_block["trends"] == trends
