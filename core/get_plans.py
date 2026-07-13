@@ -489,6 +489,42 @@ def _cell_text(cell: dict) -> str:
     return ""
 
 
+def _assign_years_to_month_headers(month_seq, today: dt.date):
+    """Month-name-only headers (e.g. 'December', 'January', ...) carry no year,
+    only a left-to-right sequence that wraps at most once. Anchoring the first
+    column to today's year breaks as soon as the plan actually started last
+    year (e.g. a Dec-Jan plan read in July would land a year in the future).
+    Try anchoring to last/this/next year and keep whichever placement lands
+    closest to today, so the resolved range self-corrects with the calendar
+    instead of needing a year written into the sheet.
+
+    month_seq: list of (col_idx, month_num). Returns list of (col_idx, dt.date)."""
+    best = None
+    best_distance = None
+    for start_year in (today.year - 1, today.year, today.year + 1):
+        ref_year = start_year
+        prev_month = 0
+        dates = []
+        for j, month_num in month_seq:
+            if month_num < prev_month:
+                ref_year += 1
+            dates.append((j, dt.date(ref_year, month_num, 1)))
+            prev_month = month_num
+
+        start, end = dates[0][1], dates[-1][1]
+        if start <= today <= end:
+            distance = dt.timedelta(0)
+        elif today < start:
+            distance = start - today
+        else:
+            distance = today - end
+
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best = dates
+    return best
+
+
 def get_seo_tasks_from_sheet_grid(sheet_meta: dict) -> tuple:
     """Parse SEO tasks from one sheet's grid data dict (one element of sheets[]).
     Returns (tasks, plan_start_str, plan_end_str).
@@ -530,21 +566,19 @@ def get_seo_tasks_from_sheet_grid(sheet_meta: dict) -> tuple:
     is_monthly = False
     if date_row_idx is None:
         for i, (texts, _) in enumerate(rows):
-            parsed = []
-            ref_year = today.year
-            prev_month = 0
+            month_seq = []
             for j, v in enumerate(texts):
                 try:
                     month_num = pd.to_datetime(v, format="%B").month
-                    if month_num < prev_month:
-                        ref_year += 1
-                    parsed.append((j, dt.date(ref_year, month_num, 1)))
-                    prev_month = month_num
                 except Exception:
-                    pass
-            if len(parsed) >= 2:
+                    continue
+                # Empty cells parse to NaT without raising; NaT.month is nan.
+                if pd.isna(month_num):
+                    continue
+                month_seq.append((j, int(month_num)))
+            if len(month_seq) >= 2:
                 date_row_idx = i
-                week_col_dates = parsed
+                week_col_dates = _assign_years_to_month_headers(month_seq, today)
                 is_monthly = True
                 break
 
