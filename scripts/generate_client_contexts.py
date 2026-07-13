@@ -44,33 +44,39 @@ def slugify(name: str) -> str:
     return slug.strip("_")
 
 
-def optional(value: str, label: str) -> str:
+DIVIDER = "─" * 41
+
+
+def optional(value, label: str) -> str:
     if value and str(value).strip() and str(value).strip() not in ("-", "FALSE"):
-        return f"- **{label}**: {str(value).strip()}"
-    return ""
+        return str(value).strip(), label
+    return None, None
 
 
-def client_sections(client: dict, level: int) -> str:
-    """Config / MCP Config / Plans sections for one client at the given heading level."""
-    h = "#" * level
+def client_block(client: dict) -> str:
+    lines = []
 
-    # ── Config ────────────────────────────────────────────────────────────────
-    config_lines = [
-        f"- **Account Type**: {client.get('account_type', '')}",
-        f"- **Dimension**: {client.get('dimension', '')}",
-        f"- **Comparison**: {client.get('comparison_dates', '')}",
-        f"- **Report Due**: {client.get('report_due_date', '')}",
+    # ── Config fields ─────────────────────────────────────────────────────────
+    fields = [
+        ("Account Type",  client.get("account_type", "")),
+        ("Dimension",     client.get("dimension", "")),
+        ("Comparison",    client.get("comparison_dates", "")),
+        ("Report Due",    client.get("report_due_date", "")),
     ]
-    for line in [
-        optional(client.get("slack_channel_id"), "Slack Channel"),
-        optional(client.get("budget"), "Budget (Weekly Reports)"),
-        optional(client.get("tat_budget"), "Budget (T&T)"),
-        optional(client.get("dashboard"), "Dashboard"),
-    ]:
-        if line:
-            config_lines.append(line)
+    for label, value in fields:
+        if value and str(value).strip():
+            lines.append(f"{label + ':':<18}{str(value).strip()}")
 
-    parts = [f"{h} Config\n\n" + "\n".join(config_lines) + "\n"]
+    for raw_label, raw_key in [
+        ("Slack Channel",  "slack_channel_id"),
+        ("Budget",         "budget"),
+        ("Dashboard",      "dashboard"),
+    ]:
+        val, lbl = optional(client.get(raw_key), raw_label)
+        if val:
+            lines.append(f"{lbl + ':':<18}{val}")
+
+    lines.append("")
 
     # ── MCP Config ────────────────────────────────────────────────────────────
     mcp_config = {
@@ -81,58 +87,72 @@ def client_sections(client: dict, level: int) -> str:
     }
     if client.get("plan"):
         mcp_config["plan"] = client["plan"]
-    parts.append(
-        f"{h} MCP Config\n\n"
-        "Pass this JSON verbatim as `client_config` when calling `fetch_client_data` or "
-        "`fetch_monthly_client_data`. Do not rebuild it from the fields above.\n\n"
-        "```json\n" + json.dumps(mcp_config, indent=2) + "\n```\n"
+
+    lines.append(
+        "When calling fetch_client_data or fetch_monthly_client_data, pass the\n"
+        "JSON block below VERBATIM as client_config — do not rebuild it from prose."
     )
+    lines.append("")
+    lines.append("client_config:")
+    lines.append(json.dumps(mcp_config, indent=2))
+    lines.append("")
 
     # ── Plans ─────────────────────────────────────────────────────────────────
     plan_lines = []
     if client.get("plan"):
-        plan_lines.append(f"- **PPC Plan**: {client['plan']}")
+        plan_lines.append(f"  PPC: {client['plan']}")
     if client.get("cro_plan"):
-        plan_lines.append(f"- **CRO Plan**: {client['cro_plan']}")
+        plan_lines.append(f"  CRO: {client['cro_plan']}")
     if client.get("seo_plan"):
-        plan_lines.append(f"- **SEO Plan**: {client['seo_plan']}")
+        plan_lines.append(f"  SEO: {client['seo_plan']}")
 
     if plan_lines:
-        parts.append(
-            f"{h} Plans\n\n"
-            "Pass the relevant URL as `sheet_url` to `fetch_plan_data` (PPC), "
-            "`fetch_cro_plan_data` (CRO), or `fetch_seo_plan_data` (SEO). "
-            "Weekly reports use the PPC plan only; CRO and SEO plans are for "
-            "the monthly report.\n\n"
-            + "\n".join(plan_lines) + "\n"
+        lines.append(
+            "When calling fetch_plan_data (PPC), fetch_cro_plan_data (CRO), or\n"
+            "fetch_seo_plan_data (SEO), pass the relevant URL as sheet_url.\n"
+            "Weekly reports use the PPC plan only; CRO and SEO plans are for\n"
+            "the monthly report."
         )
+        lines.append("")
+        lines.append("Plans:")
+        lines.extend(plan_lines)
     else:
-        parts.append(f"{h} Plans\n\n_No plans configured._\n")
+        lines.append("Plans: none configured.")
 
-    return "\n".join(parts)
+    return "\n".join(lines)
 
 
 def generate_markdown(project: str, clients: list) -> str:
     parts = [
-        f"# {project} — Door4 Reporting Tools (MCP Config)\n",
-        "Config for the D4 Data Functions MCP tools (weekly reports, monthly "
-        "reports, plan fetchers).\n",
+        f"{project.upper()} — DOOR4 REPORTING TOOLS",
+        "=" * 57,
+        "",
+        "Config for the D4 Data Functions MCP tools (weekly reports, monthly",
+        "reports, plan fetchers).",
     ]
 
-    if len(clients) == 1:
-        parts.append(client_sections(clients[0], level=2))
-    else:
-        names = ", ".join(f'"{c["name"]}"' for c in clients)
-        parts.append(
-            f"This project covers {len(clients)} data-function clients: {names}. "
-            "Reports and plan fetches run separately for each — use the block "
-            "matching the client being reported on.\n"
-        )
-        for client in clients:
-            parts.append(f"## {client['name']}\n")
-            parts.append(client_sections(client, level=3))
+    if len(clients) > 1:
+        names = " and ".join(f'"{c["name"]}"' for c in clients)
+        parts += [
+            "",
+            f"This project covers {len(clients)} data-function clients: {names}.",
+            "Reports and plan fetches run separately for each — use the block",
+            "matching the client being reported on.",
+        ]
 
-    return "\n".join(parts)
+    parts.append("")
+
+    for client in clients:
+        parts += [
+            "",
+            DIVIDER,
+            client["name"].upper(),
+            DIVIDER,
+            "",
+            client_block(client),
+        ]
+
+    return "\n".join(parts) + "\n"
 
 
 def main():
