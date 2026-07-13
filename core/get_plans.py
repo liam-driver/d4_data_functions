@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import os
+import re
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
@@ -10,6 +11,47 @@ import numpy as np
 import json
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _extract_gid(sheet_url: str) -> int | None:
+    """Extract the tab id (gid) from a Google Sheets URL, if present."""
+    match = re.search(r"[#&?]gid=(\d+)", sheet_url)
+    return int(match.group(1)) if match else None
+
+
+def _resolve_current_worksheet(sh, sheet_url: str):
+    """Return the worksheet the sheet_url's gid points to, falling back to the
+    first tab if no gid is present or it doesn't match a worksheet. Used as a
+    last resort when no tab's own date range can be parsed (see
+    _closest_worksheet_to_today) — position/gid alone is not a reliable signal
+    for which plan is 'current', since tabs get reordered and gids go stale as
+    new quarters are added without anyone updating the stored URL."""
+    gid = _extract_gid(sheet_url)
+    if gid is not None:
+        try:
+            return sh.get_worksheet_by_id(gid)
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+    return sh.get_worksheet(0)
+
+
+def _closest_worksheet_to_today(candidates: list[tuple]):
+    """candidates: list of (worksheet, start_ts, end_ts) tz-naive pd.Timestamps.
+    Return the worksheet whose range contains today, or whichever range is
+    nearest to today if none do (e.g. a gap between quarters). Self-maintaining:
+    as new quarterly tabs get populated with real dates, they become the match
+    automatically, with no need to keep a sheet_url's gid pointed at them."""
+    if not candidates:
+        return None
+    today = pd.Timestamp.today().normalize()
+
+    def _distance(item):
+        _, start, end = item
+        if start <= today <= end:
+            return pd.Timedelta(0)
+        return (start - today) if today < start else (today - end)
+
+    return min(candidates, key=_distance)[0]
 
 
 def _auth_sheets():
@@ -177,22 +219,40 @@ def get_tasks_with_schedule(df):
     return tasks
 
 
-def _build_client_plan_with_schedule(client_name, worksheets):
-    client_plans = {}
-    for i, sheet in enumerate(worksheets):
-        values = sheet.get_all_values()
-        df = pd.DataFrame(values)
-        df.replace("", np.nan, inplace=True)
-        weeks = get_weeks(df)
-        plan = {
-            "client_name": client_name,
-            "plan_start": weeks[0].strftime("%d/%m/%y"),
-            "plan_end": (weeks[-1] + pd.Timedelta(days=5)).strftime("%d/%m/%y"),
-            "plan_status": "current" if i == 0 else "old",
-            "tasks": get_tasks_with_schedule(df),
-        }
-        client_plans[sheet.title] = plan
-    return client_plans
+def _select_current_ppc_worksheet(worksheets):
+    """Pick the worksheet whose own date range covers today, so 'current' tracks
+    whichever quarterly tab is actually active without relying on tab order or a
+    sheet_url gid that goes stale as new quarters get added."""
+    candidates = []
+    for sheet in worksheets:
+        if "template" in sheet.title.lower():
+            continue
+        try:
+            values = sheet.get_all_values()
+            df = pd.DataFrame(values)
+            df.replace("", np.nan, inplace=True)
+            weeks = get_weeks(df)
+        except Exception:
+            continue
+        if not weeks:
+            continue
+        candidates.append((sheet, weeks[0], weeks[-1] + pd.Timedelta(days=5)))
+    return _closest_worksheet_to_today(candidates)
+
+
+def _build_client_plan_with_schedule(client_name, sheet):
+    values = sheet.get_all_values()
+    df = pd.DataFrame(values)
+    df.replace("", np.nan, inplace=True)
+    weeks = get_weeks(df)
+    plan = {
+        "client_name": client_name,
+        "plan_start": weeks[0].strftime("%d/%m/%y"),
+        "plan_end": (weeks[-1] + pd.Timedelta(days=5)).strftime("%d/%m/%y"),
+        "plan_status": "current",
+        "tasks": get_tasks_with_schedule(df),
+    }
+    return {sheet.title: plan}
 
 
 def get_client_plan_with_schedule(sheet_url: str) -> dict | None:
@@ -201,7 +261,10 @@ def get_client_plan_with_schedule(sheet_url: str) -> dict | None:
         return None
     sa = _auth_sheets()
     sh = sa.open_by_url(sheet_url)
-    return _build_client_plan_with_schedule(sh.title, sh.worksheets())
+    current = _select_current_ppc_worksheet(sh.worksheets())
+    if current is None:
+        current = _resolve_current_worksheet(sh, sheet_url)
+    return _build_client_plan_with_schedule(sh.title, current)
 
 
 if __name__ == "__main__":
@@ -344,24 +407,46 @@ def get_cro_tasks(df):
     return tasks
 
 
-def _build_client_cro_plan(client_name, worksheets):
-    client_plans = {}
-    for i, sheet in enumerate(worksheets):
-        values = sheet.get_all_values()
-        df = pd.DataFrame(values)
-        df.replace("", np.nan, inplace=True)
-        _, week_col_dates = _find_cro_header_and_dates(df)
-        plan_start = week_col_dates[0][1] if week_col_dates else None
-        plan_end = (week_col_dates[-1][1] + pd.Timedelta(days=5)) if week_col_dates else None
-        plan = {
-            "client_name": client_name,
-            "plan_start": plan_start.strftime("%d/%m/%y") if plan_start is not None else None,
-            "plan_end": plan_end.strftime("%d/%m/%y") if plan_end is not None else None,
-            "plan_status": "current" if i == 0 else "old",
-            "tasks": get_cro_tasks(df),
-        }
-        client_plans[sheet.title] = plan
-    return client_plans
+def _select_current_cro_worksheet(worksheets):
+    """Pick the worksheet whose own date range covers today, so 'current' tracks
+    whichever quarterly tab is actually active without relying on tab order or a
+    sheet_url gid that goes stale as new quarters get added. Tabs without a
+    parseable Category header (e.g. an early-stage RICE backlog for a future
+    quarter) are skipped rather than treated as errors."""
+    candidates = []
+    for sheet in worksheets:
+        if "template" in sheet.title.lower():
+            continue
+        try:
+            values = sheet.get_all_values()
+            df = pd.DataFrame(values)
+            df.replace("", np.nan, inplace=True)
+            _, week_col_dates = _find_cro_header_and_dates(df)
+        except Exception:
+            continue
+        if not week_col_dates:
+            continue
+        start = week_col_dates[0][1]
+        end = week_col_dates[-1][1] + pd.Timedelta(days=5)
+        candidates.append((sheet, start, end))
+    return _closest_worksheet_to_today(candidates)
+
+
+def _build_client_cro_plan(client_name, sheet):
+    values = sheet.get_all_values()
+    df = pd.DataFrame(values)
+    df.replace("", np.nan, inplace=True)
+    _, week_col_dates = _find_cro_header_and_dates(df)
+    plan_start = week_col_dates[0][1] if week_col_dates else None
+    plan_end = (week_col_dates[-1][1] + pd.Timedelta(days=5)) if week_col_dates else None
+    plan = {
+        "client_name": client_name,
+        "plan_start": plan_start.strftime("%d/%m/%y") if plan_start is not None else None,
+        "plan_end": plan_end.strftime("%d/%m/%y") if plan_end is not None else None,
+        "plan_status": "current",
+        "tasks": get_cro_tasks(df),
+    }
+    return {sheet.title: plan}
 
 
 def get_client_cro_plan(sheet_url: str) -> dict | None:
@@ -370,7 +455,10 @@ def get_client_cro_plan(sheet_url: str) -> dict | None:
         return None
     sa = _auth_sheets()
     sh = sa.open_by_url(sheet_url)
-    return _build_client_cro_plan(sh.title, sh.worksheets())
+    current = _select_current_cro_worksheet(sh.worksheets())
+    if current is None:
+        current = _resolve_current_worksheet(sh, sheet_url)
+    return _build_client_cro_plan(sh.title, current)
 
 
 # ---------------------------------------------------------------------------
@@ -532,20 +620,29 @@ def get_seo_tasks_from_sheet_grid(sheet_meta: dict) -> tuple:
     return tasks, plan_start_str, plan_end_str
 
 
-def _build_client_seo_plan(client_name: str, spreadsheet) -> dict:
-    grid_data = spreadsheet.fetch_sheet_metadata(params={"includeGridData": "true"})
-    client_plans = {}
-    for i, sheet_meta in enumerate(grid_data.get("sheets", [])):
-        title = sheet_meta.get("properties", {}).get("title", f"Sheet{i + 1}")
-        tasks, plan_start, plan_end = get_seo_tasks_from_sheet_grid(sheet_meta)
-        client_plans[title] = {
+def _build_client_seo_plan(client_name: str, spreadsheet, sheet_title: str) -> dict:
+    # Scope the grid-data fetch to just the current plan tab — this workbook can
+    # hold dozens of unrelated SEO-audit tabs (broken links, meta exports, etc.)
+    # with tens of thousands of rows each; an unscoped includeGridData fetch pulls
+    # per-cell formatting for all of them and can balloon to hundreds of MB.
+    grid_data = spreadsheet.fetch_sheet_metadata(
+        params={"includeGridData": "true", "ranges": gspread.utils.absolute_range_name(sheet_title)}
+    )
+    sheets = grid_data.get("sheets", [])
+    if not sheets:
+        return {}
+    sheet_meta = sheets[0]
+    title = sheet_meta.get("properties", {}).get("title", sheet_title)
+    tasks, plan_start, plan_end = get_seo_tasks_from_sheet_grid(sheet_meta)
+    return {
+        title: {
             "client_name": client_name,
             "plan_start": plan_start,
             "plan_end": plan_end,
-            "plan_status": "current" if i == 0 else "old",
+            "plan_status": "current",
             "tasks": tasks,
         }
-    return client_plans
+    }
 
 
 def get_client_seo_plan(sheet_url: str) -> dict | None:
@@ -554,4 +651,5 @@ def get_client_seo_plan(sheet_url: str) -> dict | None:
         return None
     sa = _auth_sheets()
     sh = sa.open_by_url(sheet_url)
-    return _build_client_seo_plan(sh.title, sh)
+    current = _resolve_current_worksheet(sh, sheet_url)
+    return _build_client_seo_plan(sh.title, sh, current.title)
