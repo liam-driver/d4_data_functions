@@ -124,33 +124,29 @@ def client_block(client: dict) -> str:
 
 def generate_markdown(project: str, clients: list) -> str:
     parts = [
-        f"{project.upper()} — DOOR4 REPORTING TOOLS",
-        "=" * 57,
-        "",
+        DIVIDER,
+        "13. DOOR4 REPORTING TOOLS — MCP CONFIG",
+        DIVIDER,
         "Config for the D4 Data Functions MCP tools (weekly reports, monthly",
         "reports, plan fetchers).",
     ]
 
-    if len(clients) > 1:
+    if len(clients) == 1:
+        parts += ["", client_block(clients[0])]
+    else:
         names = " and ".join(f'"{c["name"]}"' for c in clients)
         parts += [
-            "",
             f"This project covers {len(clients)} data-function clients: {names}.",
-            "Reports and plan fetches run separately for each — use the block",
-            "matching the client being reported on.",
+            "Use the block matching the client being reported on.",
         ]
-
-    parts.append("")
-
-    for client in clients:
-        parts += [
-            "",
-            DIVIDER,
-            client["name"].upper(),
-            DIVIDER,
-            "",
-            client_block(client),
-        ]
+        for i, client in enumerate(clients, start=1):
+            parts += [
+                "",
+                f"13.{i} {client['name'].upper()}",
+                DIVIDER,
+                "",
+                client_block(client),
+            ]
 
     return "\n".join(parts) + "\n"
 
