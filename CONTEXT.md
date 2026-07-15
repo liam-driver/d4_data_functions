@@ -27,7 +27,7 @@ A metric column name in the Funnel Import Data that is consistent across all cli
 _Avoid_: Normalised metric, mapped metric
 
 **Dimension**:
-A non-metric grouping column used to break down report data for a client (e.g. `Channel`, `Ad Channel`, `Campaign`, `Website`). The primary breakdown dimension is configured per-client in `config.json`. `Channel` (GA4 session default channel group) is a non-paid Dimension covering organic, direct, and paid traffic together.
+A non-metric grouping column used to break down report data for a client (e.g. `Channel`, `Ad Channel`, `Campaign`, `Website`, `Campaign Group: Brand`). The primary breakdown dimension is configured per-client in `config.json`. `Channel` (GA4 session default channel group) is a non-paid Dimension covering organic, direct, and paid traffic together. `Campaign Group: Brand` (`'Branded'` / `'Non-Branded'`) is only populated for Google Ads and Microsoft Ads rows — used by the Traps & Tripwires Brand Spend Split check.
 
 **Data Cut**:
 A breakdown of Funnel Import Data by a Dimension for a given date window, used to power a Trend Slide. Produces a comparison table (current vs prior period) and a timeseries. One Data Cut is fetched per Trend Slide via the `fetch_trend_data` MCP tool.

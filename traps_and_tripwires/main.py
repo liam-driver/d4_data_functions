@@ -123,12 +123,52 @@ def check_campaign_spend(client, df):
     return 'pass', "All platforms spending normally"
 
 
+def check_brand_spend_split(client, df):
+    """Returns (status, detail). Google Ads / Microsoft Ads spend only — Campaign Group:
+    Brand is not populated for other ad platforms."""
+    date_range = {
+        "start_date": client['start_date'],
+        "end_date": client['end_date'],
+    }
+    df = apply_filters(df.copy(), client, ['Ad Platform', 'Date'], date_range)
+    df = df[df['Ad Platform'].isin(['Google Ads', 'Microsoft Ads'])]
+
+    cost = pd.to_numeric(df.iloc[:, 11], errors='coerce').fillna(0)
+    if 'Campaign Group: Brand' in df.columns:
+        brand = df['Campaign Group: Brand'].fillna('')
+    else:
+        brand = pd.Series('', index=df.index)
+
+    is_branded = brand == 'Branded'
+    is_non_branded = brand == 'Non-Branded'
+    is_uncategorised = ~(is_branded | is_non_branded)
+
+    branded = cost[is_branded].sum()
+    non_branded = cost[is_non_branded].sum()
+    uncategorised = cost[is_uncategorised].sum()
+    total = branded + non_branded + uncategorised
+
+    if total == 0:
+        return 'skip', "No Google Ads / Microsoft Ads spend recorded for this period"
+
+    parts = [
+        f"Branded {branded / total:.0%} (£{branded:,.0f})",
+        f"Non-Branded {non_branded / total:.0%} (£{non_branded:,.0f})",
+    ]
+    if uncategorised > 0:
+        parts.append(f"Uncategorised {uncategorised / total:.0%} (£{uncategorised:,.0f})")
+        return 'warn', " · ".join(parts) + " — check Campaign Group: Brand tagging in Funnel"
+
+    return 'pass', " · ".join(parts)
+
+
 def run_checks(client):
     df = initialise_df(client)
     return [
         {"name": "Budget Pacing",        "result": check_budget_pacing(client, df)},
         {"name": "Conversion Tracking",  "result": check_conversion_tracking(client, df)},
         {"name": "Campaign Spend",        "result": check_campaign_spend(client, df)},
+        {"name": "Brand Spend Split",     "result": check_brand_spend_split(client, df)},
     ]
 
 
@@ -205,7 +245,8 @@ def build_client_block(client_name, checks):
     lines = [f"*{client_name}* {STATUS_EMOJI[worst]}"]
     for check in checks:
         status, detail = check["result"]
-        lines.append(f"• {check['name']} {STATUS_EMOJI[status]}")
+        emoji = "" if (check["name"] == "Brand Spend Split" and status == "pass") else STATUS_EMOJI[status]
+        lines.append(f"• {check['name']} {emoji}".rstrip())
         if detail:
             lines.append(f"   • {detail}")
 
