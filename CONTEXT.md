@@ -18,6 +18,10 @@ _Avoid_: Account, brand
 The conversion model for a Client — either `'Lead Gen'` or `'Ecommerce'`. Determines which metrics and report templates are used. Stored in `config.json`.
 _Avoid_: Account model, client type
 
+**Report Style**:
+Which Commentary Rules sub-section the `ppc-weekly-report` skill applies when writing a Weekly Report for a Client — currently only `'standard'` exists. Hard-coded per client in a `REPORT_STYLES` dict in `scripts/generate_client_contexts.py`, the same pattern used for `PROJECT_GROUPS`, because `config.json` is fully overwritten from the Config sheet on every `get_config.py` run and cannot hold hand-added fields. Emitted into the `client_config` JSON block in the Client Context File; the skill reads it from there like `account_type` or `dimension`. Not present in `config.json`. See `docs/adr/0013-report-style-branching-in-weekly-skill.md`.
+_Avoid_: report type, commentary style
+
 **Canonical Metric**:
 A metric column name in the Funnel Import Data that is consistent across all clients, regardless of how the source platform names it. Funnel.io's transformation layer maps platform-specific names (e.g. `Account Registers`, `Purchases - Google`) to the canonical name (e.g. `conversions`) before writing to the sheet.
 _Avoid_: Normalised metric, mapped metric
@@ -103,6 +107,20 @@ _Avoid_: custom range, bespoke dates, ad-hoc dates
 
 **Run Rate**:
 A projected end-of-month spend figure extrapolated from actual spend to date. Used in both weekly reports and Traps & Tripwires budget pacing checks.
+
+**Standard Report Style**:
+The only **Report Style** in use as of this writing. Redesigns the `ppc-weekly-report` Commentary Rules in response to client feedback that commentary was too metric-heavy and the WIP section just restated the 90-Day Plan verbatim. Changes from the prior (now fully replaced, no fallback) rules:
+- **WIP**: keeps the per-task list structure, but each task's summary is enriched with any matching **WOL Message** or Slack context for that task, not just a one-sentence rewrite of `desc`.
+- **Insights**: hard cap of 3 points (was 4-10), no longer forced into a per-channel `<Ad Channel> <Metric Group> <Direction>` template. Each point may be a channel/metric movement, a general cross-account trend the client wouldn't normally spot, or the measurable impact of a completed plan action, competing freely for the 3 slots rather than a fixed quota per type. Qualifies via the existing single-period % thresholds OR a sustained multi-period direction in `timeseries_data` (3+ consecutive periods same direction), to catch slow-burn trends a single mom/yoy comparison misses. Still never sourced standalone from `overall_data`, that restriction is unchanged.
+- **performance_overview / ninety_day_overview**: still evidence-based, but no longer required to pack mom + yoy + goal comparison + spend into one tight paragraph. One clear headline figure per paragraph, framed in plain language.
+- **KPIs / Cost**: unchanged, these are compact reference blocks (not narrative commentary) and the client's own feedback draws a line between wanting human interpretation in the commentary and being fine with dashboards/reference data existing.
+- **Step 6 (shorten and confirm)**: skipped entirely, the Step 4 draft is already short; goes straight to Step 7 once approved.
+
+See `docs/adr/0013-report-style-branching-in-weekly-skill.md`.
+
+**WOL Message (Work Out Loud)**:
+A Slack message the account manager posts while actively working, giving a live progress update tied to a specific 90-Day Plan task. Not a separate system or data source, it is a subset of `slack_context` (see **Client Context File** / Weekly Report Step 2), distinguished by intent rather than any tag or field. Used to synthesise real plan movement in the Weekly Report **WIP** section, rather than restating the plan row as-is.
+_Avoid_: "work order log", "WOL log" — there is no separate log; WOL messages live in the same Slack channel and are fetched the same way as any other Slack context.
 
 ## Relationships
 
