@@ -37,6 +37,14 @@ PROJECT_GROUPS = {
     "MacFarlane IE": "MacFarlane",
 }
 
+# Which Weekly Report commentary style (see ppc-weekly-report.md) each client
+# uses. Map client name (as in config.json) → style; unmapped clients get
+# DEFAULT_REPORT_STYLE. Kept here rather than in config.json for the same
+# reason as PROJECT_GROUPS: get_config.py regenerates config.json from the
+# sheet and would wipe any extra fields. All clients are "standard" today.
+REPORT_STYLES: dict[str, str] = {}
+DEFAULT_REPORT_STYLE = "standard"
+
 
 def slugify(name: str) -> str:
     slug = name.lower()
@@ -62,6 +70,7 @@ def client_block(client: dict) -> str:
         ("Dimension",     client.get("dimension", "")),
         ("Comparison",    client.get("comparison_dates", "")),
         ("Report Due",    client.get("report_due_date", "")),
+        ("Report Style",  REPORT_STYLES.get(client["name"], DEFAULT_REPORT_STYLE)),
     ]
     for label, value in fields:
         if value and str(value).strip():
@@ -84,6 +93,7 @@ def client_block(client: dict) -> str:
         "account_type": client.get("account_type", ""),
         "dimension": client.get("dimension", ""),
         "comparison_dates": client.get("comparison_dates", ""),
+        "report_style": REPORT_STYLES.get(client["name"], DEFAULT_REPORT_STYLE),
     }
     if client.get("plan"):
         mcp_config["plan"] = client["plan"]
