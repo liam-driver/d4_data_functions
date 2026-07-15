@@ -340,7 +340,7 @@ def _build_kpis_for_overall(client, channel_key, data_key, kpi_count=None):
     return all_kpis[:3]
 
 
-def _extract_current_tasks(plan_json):
+def _extract_current_tasks(plan_json, team=None):
     if not plan_json:
         return []
     if isinstance(plan_json, list):
@@ -371,17 +371,25 @@ def _extract_current_tasks(plan_json):
                 continue
         return False
 
+    # CRO plans aren't reliably tagged with Category (Active Workstream vs BAU),
+    # so that filter would drop everything — only PPC/SEO keep it.
+    if team == 'cro':
+        return [t for t in tasks if _overlaps(t)]
     return [t for t in tasks
             if t.get('category', '').strip().lower() == 'active workstream'
             and _overlaps(t)]
 
 
-def _extract_all_plan_tasks(plan_json):
+def _extract_all_plan_tasks(plan_json, team=None):
     """Returns (tasks, plan_start_str, plan_end_str) for the current quarter."""
     if not plan_json:
         return [], None, None
 
+    # CRO plans aren't reliably tagged with Category (Active Workstream vs BAU),
+    # so that filter would drop everything — only PPC/SEO keep it.
     def _active(tasks):
+        if team == 'cro':
+            return tasks
         return [t for t in tasks if t.get('category', '').strip().lower() == 'active workstream']
 
     if isinstance(plan_json, list):
@@ -784,16 +792,52 @@ def slide_planning_gantt(prs, title, tasks, plan_start_str=None, plan_end_str=No
     plan_start_dt = _parse_plan_date(plan_start_str)
     plan_end_dt   = _parse_plan_date(plan_end_str)
 
-    period_start = (plan_start_dt if plan_start_dt else min(t['start'] for t in parsed)).replace(day=1)
-    axis_end     = plan_end_dt if plan_end_dt else max(t['end'] for t in parsed)
-    last_month_start = axis_end.replace(day=1)
+    anchor_start = plan_start_dt if plan_start_dt else min(t['start'] for t in parsed)
+    anchor_end   = plan_end_dt if plan_end_dt else max(t['end'] for t in parsed)
+
+    def _next_month(d):
+        return (d.replace(year=d.year + 1, month=1, day=1) if d.month == 12
+                else d.replace(month=d.month + 1, day=1))
+
+    def _prev_month(d):
+        return (d.replace(year=d.year - 1, month=12, day=1) if d.month == 1
+                else d.replace(month=d.month - 1, day=1))
+
+    def _month_end(d):
+        return d.replace(day=monthrange(d.year, d.month)[1])
+
+    # A boundary month whose overlap with the plan window is a sliver (e.g. the plan
+    # starts 29/06 or ends 01/09) still claims a full-width header column unless we
+    # trim it — that wastes a quarter of the axis on a column with no bars in it.
+    # Only trim when no task bar actually falls in that sliver, so real bars never
+    # get clipped off the axis.
+    MIN_BOUNDARY_DAYS = 7
+
+    period_start = anchor_start.replace(day=1)
+    last_month_start = anchor_end.replace(day=1)
+
+    if period_start < last_month_start:
+        first_month_end = _month_end(period_start)
+        days_in_first_month = (min(first_month_end, anchor_end) - anchor_start).days + 1
+        touches_first_month = any(t['start'] <= first_month_end and t['end'] >= period_start for t in parsed)
+        if days_in_first_month < MIN_BOUNDARY_DAYS and not touches_first_month:
+            candidate = _next_month(period_start)
+            if candidate <= last_month_start:
+                period_start = candidate
+
+        last_month_end = _month_end(last_month_start)
+        days_in_last_month = (anchor_end - last_month_start).days + 1
+        touches_last_month = any(t['start'] <= last_month_end and t['end'] >= last_month_start for t in parsed)
+        if days_in_last_month < MIN_BOUNDARY_DAYS and not touches_last_month:
+            candidate = _prev_month(last_month_start)
+            if candidate >= period_start:
+                last_month_start = candidate
 
     months = []
     m = period_start
     while m <= last_month_start:
         months.append(m)
-        m = (m.replace(month=m.month + 1) if m.month < 12
-             else m.replace(year=m.year + 1, month=1))
+        m = _next_month(m)
 
     last_m     = months[-1]
     period_end = last_m.replace(day=monthrange(last_m.year, last_m.month)[1])
@@ -810,9 +854,7 @@ def slide_planning_gantt(prs, title, tasks, plan_start_str=None, plan_end_str=No
     CHART_LEFT   = LEFT + LABEL_W + Inches(0.1)
     CHART_W      = SL - CHART_LEFT - RIGHT
     HEADER_H     = Inches(0.35)
-    LEGEND_H     = Inches(0.35)
-    LEGEND_PAD   = Inches(0.12)
-    available    = SH - TITLE_BOTTOM - BOTTOM - HEADER_H - LEGEND_H - LEGEND_PAD
+    available    = SH - TITLE_BOTTOM - BOTTOM - HEADER_H
     row_h        = max(Inches(0.3), min(Inches(0.5), available // len(parsed)))
     ROWS_TOP     = TITLE_BOTTOM + HEADER_H
 
@@ -870,11 +912,9 @@ def slide_planning_gantt(prs, title, tasks, plan_start_str=None, plan_end_str=No
     # Task rows
     for i, task in enumerate(parsed):
         row_top = ROWS_TOP + i * row_h
-        _rect(CHART_LEFT, row_top, CHART_W, row_h,
-              fill=C["light"] if i % 2 == 0 else C["white"])
 
         label_shp = _rect(LEFT, row_top, LABEL_W, row_h, fill=C["dark"])
-        _label(label_shp, task['label'], size=Pt(8), color=C["white"])
+        _label(label_shp, task['label'], size=Pt(8), color=C["white"], align=PP_ALIGN.CENTER)
 
         s = max(task['start'], period_start)
         e = min(task['end'],   period_end)
@@ -885,31 +925,7 @@ def slide_planning_gantt(prs, title, tasks, plan_start_str=None, plan_end_str=No
         e_off = (e - period_start).days + 1
         bar_l = CHART_LEFT + int(CHART_W * s_off / total_days)
         bar_w = max(int(CHART_W * (e_off - s_off) / total_days), Inches(0.05))
-        _rect(bar_l, row_top + pad, bar_w, row_h - 2 * pad,
-              fill=STATUS_COLOURS.get(task['status'], C["grey"]))
-
-    # Legend (centered below rows)
-    legend_top = ROWS_TOP + len(parsed) * row_h + LEGEND_PAD
-    swatch     = Inches(0.14)
-    text_w_l   = Inches(0.9)
-    spacing    = Inches(0.2)
-    item_w     = swatch + Inches(0.07) + text_w_l
-    items      = [('Complete',    C["teal"]),  ('In Progress', C["gold"]),
-                  ('Scheduled',   C["grey"]),  ('Blocked',     C["orange"])]
-    total_lw   = len(items) * item_w + (len(items) - 1) * spacing
-    lx0        = (SL - total_lw) // 2
-
-    for j, (lbl, col) in enumerate(items):
-        lx = lx0 + j * (item_w + spacing)
-        ly = legend_top + (LEGEND_H - swatch) // 2
-        _rect(lx, ly, swatch, swatch, fill=col)
-        tb  = slide.shapes.add_textbox(lx + swatch + Inches(0.07), legend_top, text_w_l, LEGEND_H)
-        tf  = tb.text_frame
-        run = tf.paragraphs[0].add_run()
-        run.text           = lbl
-        run.font.name      = BRAND["font"]
-        run.font.size      = Pt(8)
-        run.font.color.rgb = C["dark"]
+        _rect(bar_l, row_top + pad, bar_w, row_h - 2 * pad, fill=C["gold"])
 
     return slide
 
@@ -1507,8 +1523,8 @@ def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
                     _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
 
         plan_json     = block.get('plan_json')
-        current_tasks = _extract_current_tasks(plan_json) if plan_json else []
-        all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json) if plan_json else ([], None, None)
+        current_tasks = _extract_current_tasks(plan_json, team=team) if plan_json else []
+        all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json, team=team) if plan_json else ([], None, None)
         if current_tasks or all_tasks:
             slide_section_separator(prs, 'Plan Overview', variant='gold')
             if current_tasks:

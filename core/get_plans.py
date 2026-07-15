@@ -343,13 +343,15 @@ def get_cro_tasks(df):
                 start_row = i + 1
                 break
 
-    INCLUDED = {"Active Workstream", "BAU"}
     tasks = []
 
     for i in range(start_row, len(df)):
         row = df.iloc[i]
+        # Category values on CRO sheets aren't reliably "Active Workstream"/"BAU" —
+        # clients use approval-status labels too (e.g. "Awaiting Client Approval").
+        # Only require a category to be present, to still skip section-header rows.
         category = _val(row, "Category")
-        if category not in INCLUDED:
+        if category is None:
             continue
         name = _val(row, "Name")
         if not name:
