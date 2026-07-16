@@ -38,8 +38,14 @@ Wait for the user's response before proceeding. If the user has nothing to add, 
 
 Using all data from Steps 1–2 and any user observations from Step 3:
 1. Generate commentary following all rules in the **Commentary Rules** section below
-2. Render a **human-readable markdown preview** of the full report using the **Markdown Preview Format** section below
-3. Output the preview clearly in chat and ask: **"Happy with the content? Let me know any changes or share further observations and I'll weave them in. Say 'looks good' when you're happy and I'll get it ready to send."**
+2. **Density check (mandatory, do not skip):** before rendering anything, count the distinct metrics/figures used in each section and confirm against these caps:
+   - `performance_overview`: exactly 1 headline figure (a second figure is allowed only in the required spend sentence, e.g. cost vs budget vs run rate counts as one unit).
+   - `ninety_day_overview`: 0 figures. Trend language only.
+   - each `performance_points` item: 2 figures maximum.
+
+   If a section is over its cap, do not add a caveat or footnote, rewrite it, choosing the single most important figure per the Metric Tier Hierarchy and cutting the rest. Do not proceed to the next step until every section passes.
+3. Render a **human-readable markdown preview** of the full report using the **Markdown Preview Format** section below
+4. Output the preview clearly in chat and ask: **"Happy with the content? Let me know any changes or share further observations and I'll weave them in. Say 'looks good' when you're happy and I'll get it ready to send."**
 
 ### Step 5: Iterate on content
 
@@ -122,7 +128,7 @@ Apply at all times when selecting evidence and framing points:
 
 ### Style Requirements
 - Write paragraphs (human readable) for summaries — not bullet lists.
-- Evidence must be specific numbers from the data inputs.
+- Evidence must be specific numbers from the data inputs. This rule exists to keep claims grounded in real data (never invent a figure or trend) and governs the KPIs/Cost sections, which are always fully numeric. It does not override the per-section density caps below: `performance_overview`, `ninety_day_overview`, and `performance_points` each have an explicit limit on figure count, and that limit wins. Where a section's cap and "be specific" conflict, pick the single figure that most supports the point and drop the rest, do not average across sources or caveat down to fit more in.
 - When comparing periods, use 'last month' or 'last year' (not dates) — derived from `reporting_period`.
 - Avoid dates when referring to periods; use 'current period', 'previous month', 'previous year'.
 - Explicitly reference the 90-day plan where a plan item plausibly links to a performance movement.
