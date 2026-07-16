@@ -45,6 +45,28 @@ PROJECT_GROUPS = {
 REPORT_STYLES: dict[str, str] = {}
 DEFAULT_REPORT_STYLE = "standard"
 
+# Scoro delivery-tracking config per client (as in config.json). Single source
+# of truth for ppc-90day-import, ppc-90day-check, and d4-monthly-skeleton,
+# replacing three independently hardcoded per-skill tables (see ADR 0014).
+# One Scoro project per real-world client — Lead Gen/Ecommerce stream pairs
+# (Harrisons Direct, Revival Beds) and grouped businesses under one Claude
+# project (Paintnuts / Paintnuts Trade) share the same projectId. Clients not
+# listed here have no Scoro project yet; Scoro-dependent content is skipped
+# gracefully for them. Kept here rather than in config.json for the same
+# reason as PROJECT_GROUPS and REPORT_STYLES.
+SCORO_CONFIG: dict[str, dict[str, str]] = {
+    "InstaGroup": {"project_id": "633", "responsible_user_id": "26", "weekly_report_day": "Monday", "active_work_day": "Monday"},
+    "FALKN": {"project_id": "675", "responsible_user_id": "26", "weekly_report_day": "Wednesday", "active_work_day": "Thursday"},
+    "Paintnuts": {"project_id": "621", "responsible_user_id": "26", "weekly_report_day": "Wednesday", "active_work_day": "Wednesday"},
+    "Paintnuts Trade": {"project_id": "621", "responsible_user_id": "26", "weekly_report_day": "Wednesday", "active_work_day": "Wednesday"},
+    "Revival Beds (Transactions)": {"project_id": "606", "responsible_user_id": "26", "weekly_report_day": "Thursday", "active_work_day": "Friday"},
+    "Revival Beds (Showroom Visits)": {"project_id": "606", "responsible_user_id": "26", "weekly_report_day": "Thursday", "active_work_day": "Friday"},
+    "Defib": {"project_id": "614", "responsible_user_id": "26", "weekly_report_day": "Monday", "active_work_day": "Tuesday"},
+    "BalmersGM": {"project_id": "605", "responsible_user_id": "26", "weekly_report_day": "Thursday", "active_work_day": "Tuesday"},
+    "Harrisons Direct (Registrations)": {"project_id": "637", "responsible_user_id": "26", "weekly_report_day": "Monday", "active_work_day": "Thursday"},
+    "Harrisons Direct (Revenue)": {"project_id": "637", "responsible_user_id": "26", "weekly_report_day": "Monday", "active_work_day": "Thursday"},
+}
+
 
 def slugify(name: str) -> str:
     slug = name.lower()
@@ -128,6 +150,27 @@ def client_block(client: dict) -> str:
         lines.extend(plan_lines)
     else:
         lines.append("Plans: none configured.")
+
+    # ── Scoro ─────────────────────────────────────────────────────────────────
+    scoro = SCORO_CONFIG.get(client["name"])
+    lines.append("")
+    if scoro:
+        lines.append(
+            "When calling Scoro MCP tools (get_tasks, get_time_entries,\n"
+            "create_task, create_time_entry), use the Scoro config below —\n"
+            "the same projectId covers PPC, SEO, and CRO delivery tracking\n"
+            "for this client. Weekly Report Day places Weekly/Monthly\n"
+            "Reporting time entries; Active Work Day places BAU and\n"
+            "Active Workstream entries."
+        )
+        lines.append("")
+        lines.append("Scoro:")
+        lines.append(f"  Project ID:           {scoro['project_id']}")
+        lines.append(f"  Responsible User ID:  {scoro['responsible_user_id']}")
+        lines.append(f"  Weekly Report Day:    {scoro['weekly_report_day']}")
+        lines.append(f"  Active Work Day:      {scoro['active_work_day']}")
+    else:
+        lines.append("Scoro: not yet configured for this client.")
 
     return "\n".join(lines)
 

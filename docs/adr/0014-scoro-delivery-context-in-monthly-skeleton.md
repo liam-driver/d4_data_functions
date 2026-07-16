@@ -1,0 +1,15 @@
+# Scoro execution context in the Monthly Report Skeleton, fetched in-skill
+
+The 90-day plan has only ever represented intent — the Monthly Report's Action Kanban/Gantt render straight from `plan_json`, with no verification against what was actually delivered. Scoro already tracks that reality (via `ppc-90day-import`/`ppc-90day-check`), but only inside those two operational skills; the Monthly Report never used it.
+
+`d4-monthly-skeleton` now calls Scoro MCP tools (`get_tasks`, `get_time_entries`) directly in-skill, the same way it already calls Slack MCP for Slack context — not through a new tool in this repo's `mcp_server`, which has never talked to Scoro and would only duplicate the Scoro MCP's own auth/client. This applies to all three Teams, with a per-team graceful skip when no Scoro tasks match that Team's `{Client}: {Team}: {task}` naming convention.
+
+Two new narrative slides — **Delivery Recap** and **Delivery Forecast** — sit alongside the existing `overviews`/`plan_json` per Team in the Teams Content JSON Schema, as a `delivery: {done, next}` block. Scoro context also silently informs the existing Overview commentary, the same treatment already given to Slack context. The Action Kanban/Gantt are deliberately left untouched — still rendered from raw, unmodified `plan_json` with no LLM text — rather than having Scoro overwrite the plan's own `status` field, which would silently override the client's plan sheet data in a client-facing render.
+
+`d4-monthly-skeleton` reads its Client → Scoro `projectId` mapping from a new `Scoro:` block in the Client Context File (one `projectId` per Client, shared across all three Teams — see **Scoro Project ID** in CONTEXT.md), generated from `SCORO_CONFIG` in `scripts/generate_client_contexts.py`. `ppc-90day-import` and `ppc-90day-check` are **not** changed to match — they live in a different operational context (live Scoro writes driven by an account manager, not report generation) and keep their own independent hardcoded Client→projectId tables. This is a deliberate second source for the same value, not an inconsistency to clean up; the two contexts were judged not worth coupling.
+
+## Considered options
+
+- **New `fetch_scoro_status` tool in `mcp_server/server.py`** — rejected: this repo has no Scoro credentials or client today, and the Scoro MCP already exists for exactly this purpose. Centralising the plan-vs-actual diff server-side was tempting but not worth standing up a second Scoro integration.
+- **Full reuse of `ppc-90day-check`'s Check A-D gap logic** — rejected: those checks (missing tasks, missing time entries, status mismatches, stale entries) exist to drive corrective Scoro writes. Delivery Recap is read-only reporting; it only needs task status and hours logged vs. planned, not a set of proposed fixes it will never apply.
+- **Enrich `plan_json`'s `status` field with Scoro-verified reality before rendering** — rejected: breaks the existing invariant that `plan_json` is always the raw, unmodified fetch response (enforced in `d4-monthly-skeleton` Step 3 and the schema), and would silently override the client's own plan sheet data in a client-facing deck.

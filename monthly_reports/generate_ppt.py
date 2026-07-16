@@ -1490,12 +1490,37 @@ def _render_team_overviews(prs, client, overviews, bullet_key):
             slide_commentary(prs, title, summary, bullets)
 
 
+def _render_delivery_recap(prs, delivery, bullet_key):
+    """Delivery Recap ('What We've Done') — see ADR 0014. Fixed subtitle, ✅
+    appended to every bullet since Recap only ever lists completed work."""
+    done = (delivery or {}).get('done')
+    bullets = done.get(bullet_key, done.get('bullets', [])) if done else []
+    if not done or not bullets:
+        return
+    checked = [f"{b['point'] if isinstance(b, dict) else b} ✅" for b in bullets]
+    slide_commentary(prs, done.get('title', 'Delivery Recap'), "Last month's actions", checked)
+
+
+def _render_delivery_forecast(prs, delivery, bullet_key):
+    """Delivery Forecast ('What We're Going To Do') — see ADR 0014. Title and
+    subtitle are always fixed; there's no story yet to headline."""
+    next_ = (delivery or {}).get('next')
+    bullets = next_.get(bullet_key, next_.get('bullets', [])) if next_ else []
+    if not next_ or not bullets:
+        return
+    slide_commentary(prs, "What's next?", "Next priority actions", bullets)
+
+
 def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
     """Build a single PPTX from confirmed Team content, selecting bullets by bullet_key.
 
-    teams_content['teams'] is a list of {team, overviews, plan_json, trends (ppc only)}
-    blocks — see ADR 0012. Used for both the Monthly Report Skeleton draft (no trends)
-    and the final deck (ppc block carries trends merged in by generate_ppt)."""
+    teams_content['teams'] is a list of {team, overviews, plan_json, delivery,
+    trends (ppc only)} blocks — see ADR 0012 and ADR 0014. Used for both the
+    Monthly Report Skeleton draft (no trends) and the final deck (ppc block
+    carries trends merged in by generate_ppt). `delivery` is optional and, per
+    team, renders as Delivery Recap before the overviews and Delivery Forecast
+    between the Action Kanban and the Gantt — see
+    _render_delivery_recap/_render_delivery_forecast."""
     template_path = os.path.join(PROJECT_ROOT, "slides", "template.pptx")
     shutil.copy(template_path, output_path)
     prs = Presentation(output_path)
@@ -1513,6 +1538,8 @@ def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
             continue
 
         slide_section_separator(prs, _TEAM_SECTION_LABEL[team], variant='navy')
+        delivery = block.get('delivery')
+        _render_delivery_recap(prs, delivery, bullet_key)
         _render_team_overviews(prs, client, block.get('overviews', []), bullet_key)
 
         if team == 'ppc':
@@ -1529,6 +1556,7 @@ def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
             slide_section_separator(prs, 'Plan Overview', variant='gold')
             if current_tasks:
                 slide_action_kanban(prs, 'Plan Overview', current_tasks)
+            _render_delivery_forecast(prs, delivery, bullet_key)
             if all_tasks:
                 slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
 

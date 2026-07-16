@@ -131,6 +131,7 @@ _Avoid_: "work order log", "WOL log" — there is no separate log; WOL messages 
 - **Weekly Reports** and **Monthly Reports** both read **Funnel Import Data** via the same `initialise_df()` → gspread path
 - **`config.json`** is the authoritative config for **Traps & Tripwires only** — all skill-triggered workflows (weekly reports, monthly reports, plan tools) get their config from the **Client Context File** via Claude at runtime
 - **Client Context Files** are generated from `config.json` via `scripts/generate_client_contexts.py` and uploaded to each client's Claude Enterprise project; regenerate and re-upload after any config change
+- A **Client** has at most one **Scoro Project ID**, shared across all three **Teams** — not one per Team
 
 ## Example dialogue
 
@@ -143,8 +144,12 @@ _Avoid_: "work order log", "WOL log" — there is no separate log; WOL messages 
 ## Planning & Scheduling
 
 **Client Context File**:
-A per-project markdown file in `storage/client_contexts/` (e.g. `falkn.md`), added to each client's Claude Enterprise project — uploaded as its own knowledge file or pasted as a section of the project's knowledge doc. Contains only the operational config that skills need at runtime: `account_type`, `dimension`, `comparison_dates`, `report_due_date`, `slack_channel_id`, budgets, plan sheet URLs, and a ready-to-pass `client_config` JSON block. Where one Claude project covers multiple data-function clients (e.g. Nuts Group → Paintnuts + Paintnuts Trade; mapping lives in `PROJECT_GROUPS` in the generator, not in `config.json`, because `get_config.py` regenerates `config.json` from the sheet), the file contains one block per client. Prose context (strategy, KPIs, seasonality, history) is deliberately not included — the team-maintained project knowledge doc is authoritative for narrative content. When a skill runs, Claude reads this file from its project knowledge and passes the matching JSON block to MCP tools verbatim — the tools do not read `config.json` themselves (except Traps & Tripwires). Generated from `config.json` via `scripts/generate_client_contexts.py`; re-upload to the Claude project after regenerating.
+A per-project markdown file in `storage/client_contexts/` (e.g. `falkn.md`), added to each client's Claude Enterprise project — uploaded as its own knowledge file or pasted as a section of the project's knowledge doc. Contains only the operational config that skills need at runtime: `account_type`, `dimension`, `comparison_dates`, `report_due_date`, `slack_channel_id`, budgets, plan sheet URLs, a `## Scoro` block (see **Scoro Project ID**), and a ready-to-pass `client_config` JSON block. Where one Claude project covers multiple data-function clients (e.g. Nuts Group → Paintnuts + Paintnuts Trade; mapping lives in `PROJECT_GROUPS` in the generator, not in `config.json`, because `get_config.py` regenerates `config.json` from the sheet), the file contains one block per client. Prose context (strategy, KPIs, seasonality, history) is deliberately not included — the team-maintained project knowledge doc is authoritative for narrative content. When a skill runs, Claude reads this file from its project knowledge and passes the matching JSON block to MCP tools verbatim — the tools do not read `config.json` themselves (except Traps & Tripwires). Generated from `config.json` via `scripts/generate_client_contexts.py`; re-upload to the Claude project after regenerating.
 _Avoid_: client config file, context doc
+
+**Scoro Project ID**:
+The Scoro `projectId` for a Client, shared across all three Teams (PPC/SEO/CRO) rather than one per Team — one Client has exactly one Scoro project. Stored in the Client Context File's `Scoro:` block (alongside `Responsible User ID`, `Weekly Report Day`, `Active Work Day`), generated from `SCORO_CONFIG` in `scripts/generate_client_contexts.py`. Read by `d4-monthly-skeleton` only. `ppc-90day-import` and `ppc-90day-check` are a separate operational context (live Scoro task/time-entry writes, not report generation) and deliberately keep their own independent hardcoded Client→projectId table — this is a second, intentionally separate source for the same value, not drift to fix. If absent for a Client in the Client Context File, Scoro-dependent content (Delivery Recap/Forecast, Scoro-informed commentary) is skipped gracefully with a note, the same pattern used when GA4 Organic Search data is missing for an SEO Overview.
+_Avoid_: Scoro config, project mapping
 
 **PPC 90-Day Plan**:
 A per-client Google Sheet tracking all PPC delivery tasks across a 90-day window. Each row is a task; columns from week 1 onward contain the planned hours for that task in that week. The first sheet tab is the current plan (`plan_status: "current"`); older tabs are historical. Sheet URL stored in the Client Context File under `## Plans`. Claude passes it to `fetch_plan_data` as a `sheet_url` parameter at runtime.
@@ -177,6 +182,13 @@ A Claude skill (`ppc-90day-import`) run in the final week of the preceding month
 
 **Weekly Check**:
 A Claude skill (`ppc-90day-check`) that compares the current 90-day plan against live Scoro tasks and time entries. Surfaces gaps — missing tasks, missing time entries, status mismatches, stale entries — and resolves them conversationally with the user before writing any changes.
+
+**Delivery Recap**:
+A narrative slide in the Monthly Report Skeleton ("What We've Done"), one per active Team, rendered from the `delivery.done` block in the Teams Content JSON Schema — positioned before that Team's Overview(s). LLM-written headline title; subtitle is always fixed to "Last month's actions" and every bullet gets a ✅ appended by the renderer, not the LLM. Bullets are synthesised from Scoro time entries logged in the reported month under the Client's Scoro project — all logged work is included and blended together without distinguishing plan-matched tasks from ad hoc work. Fetched read-only via direct Scoro MCP calls in `d4-monthly-skeleton` (`get_tasks` filtered by **Scoro Project ID**, then `get_time_entries` per task, filtered to the reported month client-side). Does not modify the Action Kanban or Gantt, which remain rendered from unmodified `plan_json` with no LLM text.
+_Avoid_: delivery summary, WIP (WIP already means something narrower in the Weekly Report's Standard Report Style)
+
+**Delivery Forecast**:
+A narrative slide in the Monthly Report Skeleton ("What We're Going To Do"), one per active Team, rendered from the `delivery.next` block in the Teams Content JSON Schema — positioned between that Team's Action Kanban and Gantt. Title and subtitle are always fixed ("What's next?" / "Next priority actions") regardless of input, since there's no story yet to headline. LLM-written bullets are synthesised from the 90-day plan's schedule for the upcoming calendar month — reuses the `plan_json` already fetched for the Action Kanban/Gantt, no separate fetch required.
 
 ## Flagged ambiguities
 

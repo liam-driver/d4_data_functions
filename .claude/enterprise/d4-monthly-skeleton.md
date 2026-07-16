@@ -100,7 +100,31 @@ If the user requests any Custom Date Windows, call `fetch_custom_overview_data` 
 
 If SEO was confirmed active but `"Organic Search"` is not present in `overall_data`, warn the user: "No Organic Search channel found in the GA4 data for this client — the SEO overview slide will be skipped, but the SEO Kanban and Gantt will still be built from the plan." Do not drop the whole SEO team over this — the plan-driven Kanban/Gantt is independent of the GA4 overview.
 
-### Step 5: Fetch Slack context
+### Step 5: Fetch Scoro delivery context
+
+For each Team confirmed active in Step 2, this builds the **Delivery Recap** and **Delivery Forecast** slides — see ADR 0014. Fetched read-only via direct Scoro MCP calls, the same way Step 6 calls Slack MCP directly.
+
+**5a. Check Scoro config**
+
+Read the `Scoro:` block from the Client Context File. If it reads `Scoro: not yet configured for this client`, skip the rest of this step entirely — note in the Step 7 preview that Delivery Recap/Forecast and Scoro-informed commentary are unavailable, and continue the workflow without them. Otherwise, record `Project ID`.
+
+**5b. Fetch and match Scoro tasks**
+
+Call the Scoro MCP's `get_tasks` with `filters.projectIds: [Project ID]` — returns every Scoro task under the client's project, across all Teams (the same `Project ID` covers PPC, SEO, and CRO).
+
+For each Team confirmed active in Step 2, filter to tasks whose name matches that Team's naming convention: `{Client}: {Team}: {task name}` (e.g. `FALKN: PPC: BAU`, `FALKN: SEO: Content Refresh`). If no tasks match a Team's prefix, skip Delivery Recap for that Team only — note "No Scoro tasks found for [Team]" in the Step 7 preview and continue with the remaining Teams. This is expected for Teams not yet onboarded to Scoro; it is not an error.
+
+**5c. Fetch this month's time entries (Delivery Recap)**
+
+For each matched Scoro task, call `get_time_entries` filtered by `taskId`. This returns every entry ever logged against the task — filter client-side to entries whose date falls within the reported month (the previous full calendar month, same period as Step 1's baseline fetch).
+
+Include every entry found for the reported month, whether or not that task also appears in the Team's 90-day plan — Delivery Recap covers all logged work under the client's Scoro project that month, plan-matched or ad hoc, with no distinction drawn between the two in the commentary.
+
+**5d. Delivery Forecast needs no Scoro fetch**
+
+Delivery Forecast is built entirely from `plan_json` already fetched in Step 1 (PPC) and Step 3 (SEO/CRO) — filtered to tasks with hours scheduled in the upcoming calendar month, the same "target month" logic `ppc-90day-import` uses. It does not depend on Scoro or on Step 5a/5b/5c succeeding; build it even for a Team that has no Scoro data.
+
+### Step 6: Fetch Slack context
 
 Read `slack_channel_id` from the Client Context File. If set, use the Slack MCP to:
 - Get the channel topic and purpose from channel info
@@ -110,13 +134,24 @@ Read `slack_channel_id` from the Client Context File. If set, use the Slack MCP 
 
 If `slack_channel_id` is not available, skip and note no Slack context is available. Use Slack context silently as background input for overview commentary — do not surface it verbatim.
 
-### Step 6: Render the preview
+### Step 7: Render the preview
 
-Using the baseline data, confirmed comparison choices, and Slack context, render the preview below in chat. Write real commentary (summary + bullets) for every overview slide now, following the Commentary Rules — this is not placeholder text. Client services reviews this before the draft PPTX is generated.
+Using the baseline data, confirmed comparison choices, Slack context, and Scoro delivery context, render the preview below in chat. Write real commentary for every overview, Delivery Recap, and Delivery Forecast slide now, following the Commentary Rules — this is not placeholder text. Client services reviews this before the draft PPTX is generated.
 
 ---
 
 **[Client Name] Monthly Deck — Skeleton — [Month Year]**
+
+*(Per active Team, in this order: Delivery Recap, Overview(s), Action Kanban, Delivery Forecast, then Gantt. Omit Delivery Recap and/or Delivery Forecast for a Team if Step 5 found nothing to populate them with — do not render an empty or placeholder version.)*
+
+**Section: PPC**
+
+*(If Step 5 found Scoro tasks for PPC:)*
+
+**Delivery Recap — Last month's actions**
+**[delivery.done.title]**
+- [bullet 1] ✅
+- ...
 
 *(Repeat for each confirmed PPC overview: previous-month, MTD if included, then Custom Date Windows)*
 
@@ -128,11 +163,27 @@ Using the baseline data, confirmed comparison choices, and Slack context, render
 - [bullet 1]
 - ...
 
-**PPC Plan Overview & Gantt** *(auto-generated from the PPC 90-day plan)*
+**PPC Plan Overview** *(Action Kanban, auto-generated from the PPC 90-day plan)*
+
+*(If Step 5 found plan tasks scheduled for the upcoming month:)*
+
+**Delivery Forecast — Next priority actions**
+**What's next?**
+- [bullet 1]
+- ...
+
+**PPC Gantt** *(auto-generated from the PPC 90-day plan)*
 
 ---
 
 *(If SEO is active:)*
+
+*(If Step 5 found Scoro tasks for SEO:)*
+
+**Delivery Recap — Last month's actions**
+**[delivery.done.title]**
+- [bullet 1] ✅
+- ...
 
 **Section: SEO — [section_title]**
 **Period:** [start_date_string] – [end_date_string]
@@ -142,11 +193,27 @@ Using the baseline data, confirmed comparison choices, and Slack context, render
 - [bullet 1]
 - ...
 
-**SEO Plan Overview & Gantt** *(auto-generated from the SEO 90-day plan)*
+**SEO Plan Overview** *(Action Kanban, auto-generated from the SEO 90-day plan)*
+
+*(If Step 5 found plan tasks scheduled for the upcoming month:)*
+
+**Delivery Forecast — Next priority actions**
+**What's next?**
+- [bullet 1]
+- ...
+
+**SEO Gantt** *(auto-generated from the SEO 90-day plan)*
 
 ---
 
 *(If CRO is active:)*
+
+*(If Step 5 found Scoro tasks for CRO:)*
+
+**Delivery Recap — Last month's actions**
+**[delivery.done.title]**
+- [bullet 1] ✅
+- ...
 
 **Section: CRO — [section_title]**
 **Period:** [start_date_string] – [end_date_string]
@@ -156,7 +223,16 @@ Using the baseline data, confirmed comparison choices, and Slack context, render
 - [bullet 1]
 - ...
 
-**CRO Plan Overview & Gantt** *(auto-generated from the CRO 90-day plan)*
+**CRO Plan Overview** *(Action Kanban, auto-generated from the CRO 90-day plan)*
+
+*(If Step 5 found plan tasks scheduled for the upcoming month:)*
+
+**Delivery Forecast — Next priority actions**
+**What's next?**
+- [bullet 1]
+- ...
+
+**CRO Gantt** *(auto-generated from the CRO 90-day plan)*
 
 ---
 
@@ -164,7 +240,7 @@ Before outputting the preview, scan every field — title, summary, and every bu
 
 Ask: **"Happy with this structure? Say 'build it' to generate the draft deck, or tell me what to change."**
 
-### Step 7: Generate the draft deck
+### Step 8: Generate the draft deck
 
 Once the user confirms:
 
@@ -209,6 +285,10 @@ Apply when selecting evidence for overview commentary:
 - Acronyms (ROAS, CPA, CTR, AOV) in all caps.
 - Use British standard date format (dd/mm/yyyy).
 - If Slack context is available, reference it where it explains a performance movement — do not surface Slack messages verbatim.
+- If Scoro delivery context is available (Step 5), reference it silently where it explains a performance movement, delay, or blocker in overview commentary — same treatment as Slack, do not surface raw Scoro task names, IDs, or statuses verbatim.
+- **Delivery Recap title**: 4–8 words, title-case, insight-led, summarising what was accomplished that month (e.g. "A Focus on Optimisation After Restructure"). No dates.
+- **Delivery Recap bullets**: one bullet per notable completed task or workstream from Step 5c, written as a specific completed action, not a synthesis paragraph (e.g. "Completed the search restructure, moving ads from DSAs to RSAs"). Do not append the checkmark yourself — the renderer adds ✅ to every Delivery Recap bullet automatically. 3–6 bullets; if more than 6 tasks had time logged, prioritise by hours logged and fold minor items into a single trailing bullet.
+- **Delivery Forecast bullets**: one bullet per task scheduled for the upcoming month in Step 5d's plan data, written as a specific forward-looking action (e.g. "Analyse and improve Paid Search based on the ad copy test results"). 3–6 bullets, same prioritisation rule as Delivery Recap if there are more.
 
 ### Variable Definitions
 
@@ -216,6 +296,7 @@ Apply when selecting evidence for overview commentary:
 - `mom.overall_data` / `yoy.overall_data`: Site-wide GA4 data broken down by Channel. The `"Organic Search"` row powers the SEO overview; the `"Total"` row powers the CRO overview.
 - `mtd.paid_data`: PPC data for the current month to date, compared to the same days last year.
 - `plan`: The PPC 90-day plan from Step 1, keyed by sheet tab name.
+- **Scoro delivery context** (Step 5): matched Scoro tasks and this month's time entries per Team, plus each Team's plan tasks scheduled for the upcoming month. Powers Delivery Recap (`delivery.done`) and Delivery Forecast (`delivery.next`) — see **Delivery Recap** / **Delivery Forecast** in CONTEXT.md.
 - **Project documents**: Client background, goals, KPIs, seasonality, and historical context are in the project documents — authoritative and supersede any equivalent JSON fields.
 
 ---
@@ -242,7 +323,18 @@ Generate a JSON object exactly matching this structure before calling `generate_
           "comparison": "string — \"mom\" or \"yoy\", required"
         }
       ],
-      "plan_json": "object — the entire, unmodified response from fetch_monthly_client_data's `plan` field"
+      "plan_json": "object — the entire, unmodified response from fetch_monthly_client_data's `plan` field",
+      "delivery": {
+        "done": {
+          "title": "string — insight-led headline, 4-8 words, title-case, no dates, summarising what was delivered. Omit the whole `done` object if Step 5b found no Scoro tasks for this Team.",
+          "bullets": [{"point": "string — one completed action per bullet, no checkmark (renderer appends it)"}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        },
+        "next": {
+          "bullets": [{"point": "string — one upcoming action per bullet, from the plan's schedule for the upcoming month. Omit the whole `next` object if no plan tasks are scheduled for the upcoming month."}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        }
+      }
     },
     {
       "team": "seo",
@@ -259,7 +351,18 @@ Generate a JSON object exactly matching this structure before calling `generate_
           "comparison": "string — \"mom\" or \"yoy\", required"
         }
       ],
-      "plan_json": "object — the entire, unmodified response from fetch_seo_plan_data. Omit this team block entirely if SEO was not confirmed active."
+      "plan_json": "object — the entire, unmodified response from fetch_seo_plan_data. Omit this team block entirely if SEO was not confirmed active.",
+      "delivery": {
+        "done": {
+          "title": "string — insight-led headline, 4-8 words, title-case, no dates, summarising what was delivered. Omit the whole `done` object if Step 5b found no Scoro tasks for this Team.",
+          "bullets": [{"point": "string — one completed action per bullet, no checkmark (renderer appends it)"}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        },
+        "next": {
+          "bullets": [{"point": "string — one upcoming action per bullet, from the plan's schedule for the upcoming month. Omit the whole `next` object if no plan tasks are scheduled for the upcoming month."}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        }
+      }
     },
     {
       "team": "cro",
@@ -276,7 +379,18 @@ Generate a JSON object exactly matching this structure before calling `generate_
           "comparison": "string — \"mom\" or \"yoy\", required"
         }
       ],
-      "plan_json": "object — the entire, unmodified response from fetch_cro_plan_data. Omit this team block entirely if CRO was not confirmed active."
+      "plan_json": "object — the entire, unmodified response from fetch_cro_plan_data. Omit this team block entirely if CRO was not confirmed active.",
+      "delivery": {
+        "done": {
+          "title": "string — insight-led headline, 4-8 words, title-case, no dates, summarising what was delivered. Omit the whole `done` object if Step 5b found no Scoro tasks for this Team.",
+          "bullets": [{"point": "string — one completed action per bullet, no checkmark (renderer appends it)"}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        },
+        "next": {
+          "bullets": [{"point": "string — one upcoming action per bullet, from the plan's schedule for the upcoming month. Omit the whole `next` object if no plan tasks are scheduled for the upcoming month."}],
+          "bullets_presentation": [{"point": "string — narrative-only, no data points, capped at 3"}]
+        }
+      }
     }
   ]
 }
@@ -288,6 +402,7 @@ Generate a JSON object exactly matching this structure before calling `generate_
 - `teams[].overviews[]` for `seo`/`cro` — always a single-item list, or an empty list if the relevant GA4 channel data was missing (see Step 4). Only `scorecard_vertical` and `scorecard_horizontal` templates are valid.
 - `teams[].overviews[]` for `ppc` — one item for the previous-month overview, one for MTD (if included), then one per confirmed Custom Date Window.
 - `teams[].plan_json` — always the full raw plan-fetch response, never pre-filtered or restructured. The renderer extracts current-quarter tasks for the Kanban and the full plan span for the Gantt itself.
+- `teams[].delivery` — entirely optional; omit the whole key for a Team with neither `done` nor `next` content. `done` and `next` are independently optional within it — a Team can have Delivery Forecast with no Delivery Recap (no Scoro data yet) or vice versa (nothing scheduled next month). The renderer places `done` (Delivery Recap) before the Overview(s) and `next` (Delivery Forecast) between the Action Kanban and the Gantt — you don't control this via the JSON, it's fixed by the renderer regardless of array order. The renderer also fixes `done`'s subtitle to "Last month's actions" and appends ✅ to every `done` bullet; `next`'s title is always "What's next?" and its subtitle is always "Next priority actions" — do not pass these, the renderer sets them.
 - There is no `actions` or `trends` field in this schema — actions render directly from `plan_json` with no LLM-written text, and trends are added later by `ppc-monthly-report-insights`.
 
 ---

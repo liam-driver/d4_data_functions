@@ -605,19 +605,29 @@ def _cleanup_old_slides(client_name: str, protected: set) -> None:
 @mcp.tool()
 def generate_skeleton_pptx(client_name: str, teams_content: str) -> str:
     """Generate the Monthly Report Skeleton draft for a client: one section per active Team
-    (PPC/SEO/CRO), each with its Overview scorecard(s), Action Kanban, and Gantt. No trend
+    (PPC/SEO/CRO), each with an optional Delivery Recap, its Overview scorecard(s), an optional
+    Delivery Forecast, an Action Kanban, and a Gantt — in that order (see ADR 0014). No trend
     slides — those are added later by ppc-monthly-report-insights. Persists teams_content
     server-side as the checkpoint that generate_monthly_pptx merges confirmed PPC trends into
     (see ADR 0012 — the two skills may run in entirely separate chat sessions).
 
     teams_content must be a JSON string: {"teams": [{"team": "ppc"|"seo"|"cro", "overviews":
-    [...], "plan_json": {...}}, ...]}. Only include a block for each Team confirmed active for
-    this client this run — a Team with no plan URL in the client's Client Context File should be
-    omitted entirely, not included with empty data. "overviews" items use the existing overview
-    item shape (data_key, section_title, title, summary, bullets, bullets_presentation, template,
-    kpi_count, comparison) — PPC may have several (previous-month, MTD, custom windows); SEO
-    ('organic_data') and CRO ('cro_data') each take exactly one. "plan_json" is the unmodified
-    response from fetch_plan_data (ppc), fetch_seo_plan_data (seo), or fetch_cro_plan_data (cro).
+    [...], "plan_json": {...}, "delivery": {...}}, ...]}. Only include a block for each Team
+    confirmed active for this client this run — a Team with no plan URL in the client's Client
+    Context File should be omitted entirely, not included with empty data. "overviews" items use
+    the existing overview item shape (data_key, section_title, title, summary, bullets,
+    bullets_presentation, template, kpi_count, comparison) — PPC may have several
+    (previous-month, MTD, custom windows); SEO ('organic_data') and CRO ('cro_data') each take
+    exactly one. "plan_json" is the unmodified response from fetch_plan_data (ppc),
+    fetch_seo_plan_data (seo), or fetch_cro_plan_data (cro).
+
+    "delivery" is optional and sourced from Scoro, not the plan sheet or GA4 (see ADR 0014):
+    {"done": {"title": str, "bullets": [...], "bullets_presentation": [...]}, "next": {"bullets":
+    [...], "bullets_presentation": [...]}}. "done" renders as Delivery Recap ("Last month's
+    actions", every bullet auto-suffixed with a checkmark) and "next" as Delivery Forecast
+    ("What's next?" / "Next priority actions", fixed title and subtitle regardless of input).
+    Omit "delivery" entirely, or "done"/"next" individually within it, when there is nothing to
+    show — do not send an empty object.
 
     Always produces two draft decks (Detailed and Presentation). Returns a JSON object with
     'path', 'download_url', 'presentation_path', and 'presentation_download_url'."""

@@ -275,6 +275,16 @@ def _all_slide_text(prs):
     )
 
 
+def _ordered_titles(prs):
+    titles = []
+    for slide in prs.slides:
+        try:
+            titles.append(slide.placeholders[0].text)
+        except (KeyError, IndexError):
+            titles.append(None)
+    return titles
+
+
 class TestAssemblePptxTeams:
     def _client(self):
         return {
@@ -357,6 +367,112 @@ class TestAssemblePptxTeams:
         _assemble_pptx(self._client(), teams_content, output_path)
         prs = Presentation(output_path)
         assert 'Plan Overview' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+
+
+# ── Delivery Recap / Delivery Forecast (ADR 0014) ──────────────────────────────
+
+class TestAssemblePptxDelivery:
+    def _client(self):
+        return TestAssemblePptxTeams._client(self)
+
+    def _teams_content(self, delivery=None):
+        ppc_block = {
+            "team": "ppc",
+            "overviews": [{"data_key": "paid_data", "comparison": "mom"}],
+            "plan_json": _plan_json("PPC Task"),
+        }
+        if delivery is not None:
+            ppc_block["delivery"] = delivery
+        return {"teams": [ppc_block]}
+
+    def test_recap_and_forecast_render_in_order_around_overview_and_kanban(self, tmp_path):
+        # slide_planning_gantt doesn't render its `title` param as visible text (blank
+        # layout, custom shapes) so the Gantt slide can't be located by title text like
+        # the others — its position is instead confirmed by being the final slide.
+        delivery = {
+            "done": {"title": "Great Month For Search", "bullets": [{"point": "Completed the restructure"}]},
+            "next": {"bullets": [{"point": "Analyse the ad copy test"}]},
+        }
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(delivery), output_path)
+        prs = Presentation(output_path)
+        titles = _ordered_titles(prs)
+
+        recap_idx = titles.index("Great Month For Search")
+        overview_separator_idx = titles.index("Performance Overview")  # default section_title for paid_data
+        # 'Plan Overview' appears twice: the gold separator, then the Kanban slide itself.
+        plan_overview_positions = [i for i, t in enumerate(titles) if t == 'Plan Overview']
+        kanban_idx = plan_overview_positions[-1]
+        forecast_idx = titles.index("What's next?")
+
+        assert recap_idx < overview_separator_idx < kanban_idx < forecast_idx
+        assert forecast_idx == kanban_idx + 1, "Forecast should render immediately after the Kanban slide"
+        assert forecast_idx == len(prs.slides) - 2, "Gantt (untitled) should be the final slide, right after Forecast"
+
+    def test_recap_bullets_get_checkmark_appended(self, tmp_path):
+        delivery = {"done": {"title": "Great Month", "bullets": [{"point": "Completed the restructure"}]}}
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(delivery), output_path)
+        prs = Presentation(output_path)
+        all_text = _all_slide_text(prs)
+        assert 'Completed the restructure ✅' in all_text
+
+    def test_forecast_title_and_subtitle_are_always_fixed(self, tmp_path):
+        delivery = {"next": {"title": "ignored value", "bullets": [{"point": "Analyse the ad copy test"}]}}
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(delivery), output_path)
+        prs = Presentation(output_path)
+        titles = _ordered_titles(prs)
+        assert "What's next?" in titles
+        assert "ignored value" not in titles
+
+    def test_recap_omitted_when_no_scoro_data(self, tmp_path):
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(self._client(), self._teams_content(delivery=None), output_path)
+        prs = Presentation(output_path)
+        all_text = _all_slide_text(prs)
+        assert "Last month's actions" not in all_text
+        assert "What's next?" not in all_text
+
+    def test_done_and_next_are_independently_optional(self, tmp_path):
+        # Only 'done' present — Forecast should not render.
+        output_path = str(tmp_path / "draft.pptx")
+        _assemble_pptx(
+            self._client(),
+            self._teams_content({"done": {"title": "Great Month", "bullets": [{"point": "Did the thing"}]}}),
+            output_path,
+        )
+        prs = Presentation(output_path)
+        titles = _ordered_titles(prs)
+        assert "Great Month" in titles
+        assert "What's next?" not in titles
+
+        # Only 'next' present — Recap should not render.
+        output_path_2 = str(tmp_path / "draft2.pptx")
+        _assemble_pptx(
+            self._client(),
+            self._teams_content({"next": {"bullets": [{"point": "Do the next thing"}]}}),
+            output_path_2,
+        )
+        prs2 = Presentation(output_path_2)
+        all_text = _all_slide_text(prs2)
+        assert "Last month's actions" not in all_text
+        assert "What's next?" in _ordered_titles(prs2)
+
+    def test_presentation_deck_uses_bullets_presentation_key(self, tmp_path):
+        delivery = {
+            "done": {
+                "title": "Great Month",
+                "bullets": [{"point": "Detailed bullet with data"}],
+                "bullets_presentation": [{"point": "Narrative bullet"}],
+            },
+        }
+        output_path = str(tmp_path / "presentation.pptx")
+        _assemble_pptx(self._client(), self._teams_content(delivery), output_path, bullet_key='bullets_presentation')
+        prs = Presentation(output_path)
+        all_text = _all_slide_text(prs)
+        assert 'Narrative bullet ✅' in all_text
+        assert 'Detailed bullet with data' not in all_text
 
 
 # ── generate_skeleton_ppt / generate_ppt orchestration (ADR 0012) ─────────────
