@@ -606,20 +606,20 @@ def _cleanup_old_slides(client_name: str, protected: set) -> None:
 def generate_skeleton_pptx(client_name: str, teams_content: str) -> str:
     """Generate the Monthly Report Skeleton draft for a client: one section per active Team
     (PPC/SEO/CRO), each with an optional Delivery Recap, its Overview scorecard(s), an optional
-    Delivery Forecast, an Action Kanban, and a Gantt — in that order (see ADR 0014). No trend
-    slides — those are added later by ppc-monthly-report-insights. Persists teams_content
-    server-side as the checkpoint that generate_monthly_pptx merges confirmed PPC trends into
-    (see ADR 0012 — the two skills may run in entirely separate chat sessions).
+    Delivery Forecast, and a Gantt — in that order (see ADR 0014). No trend slides — those are
+    added later by ppc-monthly-report-insights. Persists teams_content server-side as the
+    checkpoint that generate_monthly_pptx merges confirmed PPC trends into (see ADR 0012 — the
+    two skills may run in entirely separate chat sessions).
 
     teams_content must be a JSON string: {"teams": [{"team": "ppc"|"seo"|"cro", "overviews":
     [...], "plan_json": {...}, "delivery": {...}}, ...]}. Only include a block for each Team
     confirmed active for this client this run — a Team with no plan URL in the client's Client
     Context File should be omitted entirely, not included with empty data. "overviews" items use
-    the existing overview item shape (data_key, section_title, title, summary, bullets,
-    bullets_presentation, template, kpi_count, comparison) — PPC may have several
-    (previous-month, MTD, custom windows); SEO ('organic_data') and CRO ('cro_data') each take
-    exactly one. "plan_json" is the unmodified response from fetch_plan_data (ppc),
-    fetch_seo_plan_data (seo), or fetch_cro_plan_data (cro).
+    the existing overview item shape (data_key, title, summary, bullets, bullets_presentation,
+    template, kpi_count, comparison) — PPC may have several (previous-month, MTD, custom
+    windows); SEO ('organic_data') and CRO ('cro_data') each take exactly one. "plan_json" is the
+    unmodified response from fetch_plan_data (ppc), fetch_seo_plan_data (seo), or
+    fetch_cro_plan_data (cro).
 
     "delivery" is optional and sourced from Scoro, not the plan sheet or GA4 (see ADR 0014):
     {"done": {"title": str, "bullets": [...], "bullets_presentation": [...]}, "next": {"bullets":
@@ -656,9 +656,9 @@ def generate_monthly_pptx(client_name: str, slide_content: str) -> str:
 
     slide_content must be a JSON string with a single key: trends (list of
     title/summary/bullets/bullets_presentation/graph objects for the PPC section — see
-    ADR 0012). The Skeleton's Team overviews, Action Kanbans, and Gantts (PPC/SEO/CRO) are
-    loaded from the checkpoint unchanged; trends are slotted into the PPC section between its
-    overview(s) and its Kanban/Gantt. Always produces two decks: a detailed deck (full metric
+    ADR 0012). The Skeleton's Team overviews and Gantts (PPC/SEO/CRO) are loaded from the
+    checkpoint unchanged; trends are slotted into the PPC section between its overview(s) and
+    its Gantt. Always produces two decks: a detailed deck (full metric
     bullets) and a presentation deck (narrative-only bullets, data-free). Returns a JSON object
     with 'path', 'download_url', 'presentation_path', and 'presentation_download_url' — share
     both download URLs with the user."""

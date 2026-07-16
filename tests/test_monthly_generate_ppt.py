@@ -315,11 +315,12 @@ class TestAssemblePptxTeams:
         cro_block = {"team": "cro", "overviews": [], "plan_json": _plan_json("CRO Task")}
         return {"teams": [ppc_block, seo_block, cro_block]}
 
-    def test_renders_navy_section_per_active_team_in_order(self, tmp_path):
+    def test_renders_gold_section_per_active_team_in_order(self, tmp_path):
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), self._teams_content(), output_path)
         prs = Presentation(output_path)
-        assert _separator_titles(prs, SLD_LAYOUT_SECTION_SEPARATOR) == ['Paid Media', 'SEO', 'CRO']
+        assert _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR) == ['Paid Media', 'Organic SEO', 'CRO UX']
+        assert _separator_titles(prs, SLD_LAYOUT_SECTION_SEPARATOR) == [], "navy dividers are no longer used"
 
     def test_skips_team_with_no_block(self, tmp_path):
         teams_content = self._teams_content()
@@ -327,22 +328,22 @@ class TestAssemblePptxTeams:
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), teams_content, output_path)
         prs = Presentation(output_path)
-        assert _separator_titles(prs, SLD_LAYOUT_SECTION_SEPARATOR) == ['Paid Media', 'CRO']
+        assert _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR) == ['Paid Media', 'CRO UX']
 
-    def test_top_level_trends_omitted_when_ppc_has_no_trends(self, tmp_path):
+    def test_trends_omitted_when_ppc_has_no_trends(self, tmp_path):
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), self._teams_content(include_trends=False), output_path)
         prs = Presentation(output_path)
-        assert 'Top Level Trends' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+        assert 'Paid Search Grows' not in _ordered_titles(prs)
 
-    def test_top_level_trends_rendered_when_ppc_has_trends(self, tmp_path):
+    def test_trends_rendered_when_ppc_has_trends(self, tmp_path):
         output_path = str(tmp_path / "final.pptx")
         _assemble_pptx(self._client(), self._teams_content(include_trends=True), output_path)
         prs = Presentation(output_path)
-        assert 'Top Level Trends' in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+        assert 'Paid Search Grows' in _ordered_titles(prs)
 
-    def test_only_ppc_ever_renders_trends_section(self, tmp_path):
-        """SEO/CRO never get a Top Level Trends section, even if trends were injected there."""
+    def test_only_ppc_ever_renders_trends(self, tmp_path):
+        """SEO/CRO never render a trends block, even if trends were injected there."""
         teams_content = self._teams_content()
         teams_content['teams'][1]['trends'] = [
             {"title": "x", "summary": "y", "bullets": [], "graph": {}}
@@ -350,9 +351,9 @@ class TestAssemblePptxTeams:
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), teams_content, output_path)
         prs = Presentation(output_path)
-        assert 'Top Level Trends' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+        assert 'x' not in _ordered_titles(prs)
 
-    def test_each_team_gets_its_own_kanban_and_gantt(self, tmp_path):
+    def test_each_team_gets_its_own_gantt(self, tmp_path):
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), self._teams_content(), output_path)
         prs = Presentation(output_path)
@@ -361,12 +362,13 @@ class TestAssemblePptxTeams:
         assert 'Google Ads: SEO Task' in all_text
         assert 'Google Ads: CRO Task' in all_text
 
-    def test_team_with_no_plan_tasks_gets_no_plan_overview_section(self, tmp_path):
+    def test_team_with_no_plan_tasks_gets_no_gantt(self, tmp_path):
         teams_content = {"teams": [{"team": "ppc", "overviews": [], "plan_json": None}]}
         output_path = str(tmp_path / "draft.pptx")
         _assemble_pptx(self._client(), teams_content, output_path)
         prs = Presentation(output_path)
-        assert 'Plan Overview' not in _separator_titles(prs, SLD_LAYOUT_SUNSET_SECTION_SEPARATOR)
+        # Only the cover and the team divider — no Gantt slide was appended.
+        assert len(prs.slides) == 2
 
 
 # ── Delivery Recap / Delivery Forecast (ADR 0014) ──────────────────────────────
@@ -385,7 +387,7 @@ class TestAssemblePptxDelivery:
             ppc_block["delivery"] = delivery
         return {"teams": [ppc_block]}
 
-    def test_recap_and_forecast_render_in_order_around_overview_and_kanban(self, tmp_path):
+    def test_recap_and_forecast_render_in_order_around_overview_and_gantt(self, tmp_path):
         # slide_planning_gantt doesn't render its `title` param as visible text (blank
         # layout, custom shapes) so the Gantt slide can't be located by title text like
         # the others — its position is instead confirmed by being the final slide.
@@ -398,15 +400,11 @@ class TestAssemblePptxDelivery:
         prs = Presentation(output_path)
         titles = _ordered_titles(prs)
 
-        recap_idx = titles.index("Great Month For Search")
-        overview_separator_idx = titles.index("Performance Overview")  # default section_title for paid_data
-        # 'Plan Overview' appears twice: the gold separator, then the Kanban slide itself.
-        plan_overview_positions = [i for i, t in enumerate(titles) if t == 'Plan Overview']
-        kanban_idx = plan_overview_positions[-1]
+        recap_idx    = titles.index("Great Month For Search")
+        overview_idx = titles.index("Performance")  # default title for paid_data
         forecast_idx = titles.index("What's next?")
 
-        assert recap_idx < overview_separator_idx < kanban_idx < forecast_idx
-        assert forecast_idx == kanban_idx + 1, "Forecast should render immediately after the Kanban slide"
+        assert recap_idx < overview_idx < forecast_idx
         assert forecast_idx == len(prs.slides) - 2, "Gantt (untitled) should be the final slide, right after Forecast"
 
     def test_recap_bullets_get_checkmark_appended(self, tmp_path):

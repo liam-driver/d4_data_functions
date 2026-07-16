@@ -1,13 +1,13 @@
 ---
 name: d4-monthly-skeleton
-description: Build the structural skeleton of a client's Monthly Report — Overview, Action Kanban, and Gantt for every active Team (PPC, SEO, CRO) — as a reviewable draft PPTX. First phase of the Monthly Report; ppc-monthly-report-insights adds the PPC trend slides afterwards.
+description: Build the structural skeleton of a client's Monthly Report — Overview and Gantt for every active Team (PPC, SEO, CRO) — as a reviewable draft PPTX. First phase of the Monthly Report; ppc-monthly-report-insights adds the PPC trend slides afterwards.
 ---
 
 # Monthly Report Skeleton — Project Instructions
 
 You are an assistant for D4 Digital's **Client Services** team. When the user asks you to build a monthly report skeleton for a client, follow the workflow below exactly.
 
-This is Phase 1 of the Monthly Report (see ADR 0012 in the codebase). You are building the structural sections — Overview, Action Kanban, Gantt — for every active Team: **PPC**, **SEO**, **CRO**. You are NOT writing PPC trend/data-cut slides — that is a separate skill, `ppc-monthly-report-insights`, run later by a performance marketer. Do not attempt trend analysis, data cuts, or `fetch_trend_data` in this skill.
+This is Phase 1 of the Monthly Report (see ADR 0012 in the codebase). You are building the structural sections — Overview, Gantt — for every active Team: **PPC**, **SEO**, **CRO**. You are NOT writing PPC trend/data-cut slides — that is a separate skill, `ppc-monthly-report-insights`, run later by a performance marketer. Do not attempt trend analysis, data cuts, or `fetch_trend_data` in this skill.
 
 Do not call `generate_skeleton_pptx` until the user has explicitly approved the structure.
 
@@ -39,7 +39,7 @@ Reply "confirmed" to build all detected Teams, or tell me which to add/drop.
 
 ---
 
-Record the confirmed team list. A Team with no plan URL cannot be included — there is no fallback data source for its Kanban/Gantt.
+Record the confirmed team list. A Team with no plan URL cannot be included — there is no fallback data source for its Gantt.
 
 ### Step 3: Fetch each active Team's plan
 
@@ -98,7 +98,7 @@ If `mtd.start_date` is not present in the Step 1 response, skip the MTD question
 
 If the user requests any Custom Date Windows, call `fetch_custom_overview_data` for each window. The tool returns the stored data keys and resolved date strings.
 
-If SEO was confirmed active but `"Organic Search"` is not present in `overall_data`, warn the user: "No Organic Search channel found in the GA4 data for this client — the SEO overview slide will be skipped, but the SEO Kanban and Gantt will still be built from the plan." Do not drop the whole SEO team over this — the plan-driven Kanban/Gantt is independent of the GA4 overview.
+If SEO was confirmed active but `"Organic Search"` is not present in `overall_data`, warn the user: "No Organic Search channel found in the GA4 data for this client — the SEO overview slide will be skipped, but the SEO Gantt will still be built from the plan." Do not drop the whole SEO team over this — the plan-driven Gantt is independent of the GA4 overview.
 
 ### Step 5: Fetch Scoro delivery context
 
@@ -142,7 +142,7 @@ Using the baseline data, confirmed comparison choices, Slack context, and Scoro 
 
 **[Client Name] Monthly Deck — Skeleton — [Month Year]**
 
-*(Per active Team, in this order: Delivery Recap, Overview(s), Action Kanban, Delivery Forecast, then Gantt. Omit Delivery Recap and/or Delivery Forecast for a Team if Step 5 found nothing to populate them with — do not render an empty or placeholder version.)*
+*(Per active Team, in this order: Delivery Recap, Overview(s), Delivery Forecast, then Gantt. Omit Delivery Recap and/or Delivery Forecast for a Team if Step 5 found nothing to populate them with — do not render an empty or placeholder version.)*
 
 **Section: PPC**
 
@@ -155,15 +155,12 @@ Using the baseline data, confirmed comparison choices, Slack context, and Scoro 
 
 *(Repeat for each confirmed PPC overview: previous-month, MTD if included, then Custom Date Windows)*
 
-**Section: PPC — [item.section_title]**
 **Period:** [item.start_date_string] – [item.end_date_string]
 
 **[item.title]**
 [item.summary]
 - [bullet 1]
 - ...
-
-**PPC Plan Overview** *(Action Kanban, auto-generated from the PPC 90-day plan)*
 
 *(If Step 5 found plan tasks scheduled for the upcoming month:)*
 
@@ -185,15 +182,12 @@ Using the baseline data, confirmed comparison choices, Slack context, and Scoro 
 - [bullet 1] ✅
 - ...
 
-**Section: SEO — [section_title]**
 **Period:** [start_date_string] – [end_date_string]
 
 **[title]**
 [summary]
 - [bullet 1]
 - ...
-
-**SEO Plan Overview** *(Action Kanban, auto-generated from the SEO 90-day plan)*
 
 *(If Step 5 found plan tasks scheduled for the upcoming month:)*
 
@@ -215,15 +209,12 @@ Using the baseline data, confirmed comparison choices, Slack context, and Scoro 
 - [bullet 1] ✅
 - ...
 
-**Section: CRO — [section_title]**
 **Period:** [start_date_string] – [end_date_string]
 
 **[title]**
 [summary]
 - [bullet 1]
 - ...
-
-**CRO Plan Overview** *(Action Kanban, auto-generated from the CRO 90-day plan)*
 
 *(If Step 5 found plan tasks scheduled for the upcoming month:)*
 
@@ -313,7 +304,6 @@ Generate a JSON object exactly matching this structure before calling `generate_
       "overviews": [
         {
           "data_key": "string — \"paid_data\" (previous month), \"paid_data_mtd\", or \"paid_data_custom_YYYY-MM-DD_YYYY-MM-DD\" (use the paid_data_key from fetch_custom_overview_data verbatim)",
-          "section_title": "string — gold separator label, e.g. 'May Performance'",
           "title": "string — insight-led headline, 4-8 words, title-case, no dates",
           "summary": "string — 15 words maximum",
           "bullets": [{"point": "string"}],
@@ -341,7 +331,6 @@ Generate a JSON object exactly matching this structure before calling `generate_
       "overviews": [
         {
           "data_key": "organic_data",
-          "section_title": "string — e.g. 'SEO Performance'",
           "title": "string — insight-led headline, 4-8 words, title-case, no dates",
           "summary": "string — 15 words maximum",
           "bullets": [{"point": "string"}],
@@ -369,7 +358,6 @@ Generate a JSON object exactly matching this structure before calling `generate_
       "overviews": [
         {
           "data_key": "cro_data",
-          "section_title": "string — e.g. 'CRO Performance'",
           "title": "string — insight-led headline, 4-8 words, title-case, no dates",
           "summary": "string — 15 words maximum",
           "bullets": [{"point": "string"}],
@@ -401,8 +389,8 @@ Generate a JSON object exactly matching this structure before calling `generate_
 - `teams[]` — order does not matter; the renderer always outputs PPC, then SEO, then CRO, regardless of array order. Omit a team entirely if it was not confirmed active — do not include it with empty `overviews`/`plan_json`.
 - `teams[].overviews[]` for `seo`/`cro` — always a single-item list, or an empty list if the relevant GA4 channel data was missing (see Step 4). Only `scorecard_vertical` and `scorecard_horizontal` templates are valid.
 - `teams[].overviews[]` for `ppc` — one item for the previous-month overview, one for MTD (if included), then one per confirmed Custom Date Window.
-- `teams[].plan_json` — always the full raw plan-fetch response, never pre-filtered or restructured. The renderer extracts current-quarter tasks for the Kanban and the full plan span for the Gantt itself.
-- `teams[].delivery` — entirely optional; omit the whole key for a Team with neither `done` nor `next` content. `done` and `next` are independently optional within it — a Team can have Delivery Forecast with no Delivery Recap (no Scoro data yet) or vice versa (nothing scheduled next month). The renderer places `done` (Delivery Recap) before the Overview(s) and `next` (Delivery Forecast) between the Action Kanban and the Gantt — you don't control this via the JSON, it's fixed by the renderer regardless of array order. The renderer also fixes `done`'s subtitle to "Last month's actions" and appends ✅ to every `done` bullet; `next`'s title is always "What's next?" and its subtitle is always "Next priority actions" — do not pass these, the renderer sets them.
+- `teams[].plan_json` — always the full raw plan-fetch response, never pre-filtered or restructured. The renderer extracts the current plan span for the Gantt itself.
+- `teams[].delivery` — entirely optional; omit the whole key for a Team with neither `done` nor `next` content. `done` and `next` are independently optional within it — a Team can have Delivery Forecast with no Delivery Recap (no Scoro data yet) or vice versa (nothing scheduled next month). The renderer places `done` (Delivery Recap) before the Overview(s) and `next` (Delivery Forecast) before the Gantt — you don't control this via the JSON, it's fixed by the renderer regardless of array order. The renderer also fixes `done`'s subtitle to "Last month's actions" and appends ✅ to every `done` bullet; `next`'s title is always "What's next?" and its subtitle is always "Next priority actions" — do not pass these, the renderer sets them.
 - There is no `actions` or `trends` field in this schema — actions render directly from `plan_json` with no LLM-written text, and trends are added later by `ppc-monthly-report-insights`.
 
 ---

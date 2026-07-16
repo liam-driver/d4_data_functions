@@ -8,7 +8,7 @@ An automated reporting pipeline that generates weekly and monthly paid media per
 
 **Funnel Import Data**:
 Time-series performance rows for a client — one row per date/channel combination, covering both paid and organic channels. Stored in a Google Sheet called `'Weekly Reports'`, one tab per client named `"{client_name} Funnel Import"`. Funnel.io populates these tabs; the report pipeline reads them via gspread.
-_Avoid_: "BigQuery data", "BQ table", "raw data"
+_Avoid_: "raw data"
 
 **Client**:
 A single reporting entity in `config.json`, identified by `name`. The `name` must exactly match the Google Sheet tab name used to find Funnel Import Data (i.e. the worksheet `"{name} Funnel Import"` must exist). One real-world client may have more than one Client entry when they have distinct Lead Gen and Ecommerce conversion streams (see: Harrison's).
@@ -47,11 +47,11 @@ A single coloured box within a Scorecard Slide showing one metric's `curr`, `pre
 _Avoid_: "stat box", "metric card"
 
 **Organic Overview**:
-A scorecard slide covering Organic Search performance from `overall_data` (GA4), filtered to the `"Organic Search"` Channel row. Metrics: Sessions, Conversions (Lead Gen) or Transaction Revenue (Ecommerce), and Conversion Rate. Rendered inside the **SEO** team section, alongside the SEO team's Kanban and Gantt.
-_Avoid_: "SEO Overview", "organic traffic slide" — the slide type is always "Organic Overview" (it's GA4 organic-search data, not SEO deliverables), even though it lives inside the section labelled "SEO". Do not use "Organic Overview" and "SEO" interchangeably as slide names — "SEO" is the correct name for the containing team section only.
+A scorecard slide covering Organic Search performance from `overall_data` (GA4), filtered to the `"Organic Search"` Channel row. Metrics: Sessions, Conversions (Lead Gen) or Transaction Revenue (Ecommerce), and Conversion Rate. Rendered inside the **SEO** team section (gold divider labelled "Organic SEO"), alongside the SEO team's Gantt.
+_Avoid_: "SEO Overview", "organic traffic slide" — the slide type is always "Organic Overview" (it's GA4 organic-search data, not SEO deliverables), even though it lives inside the section labelled "Organic SEO". Do not use "Organic Overview" and "SEO" interchangeably as slide names — "SEO" is the correct name for the containing team only.
 
 **CRO Overview**:
-A scorecard slide covering site-wide conversion performance from `overall_data` (GA4), using the `"Total"` Channel row. Metrics: Sessions, Conversion Rate, and AOV (Ecommerce only). Rendered as its own navy-separated section after the Organic section. Included per-run when requested.
+A scorecard slide covering site-wide conversion performance from `overall_data` (GA4), using the `"Total"` Channel row. Metrics: Sessions, Conversion Rate, and AOV (Ecommerce only). Rendered inside the **CRO** team section (gold divider labelled "CRO UX"). Included per-run when requested.
 _Avoid_: conversion slide, site-wide overview
 
 ### Report types
@@ -70,11 +70,11 @@ The in-room version of the Monthly Report, used by the presenter during the clie
 _Avoid_: "clean version", "presenter copy", "lite deck"
 
 **Team**:
-One of the three delivery groups covered by the Monthly Report: **PPC**, **SEO**, **CRO**. Each Team has its own 90-Day Plan (see PPC/SEO/CRO 90-Day Plan), its own Action Kanban, its own Gantt, and its own Overview scorecard slide. A client may have any subset of the three Teams active, detected from which plan URLs are present in their Client Context File.
+One of the three delivery groups covered by the Monthly Report: **PPC**, **SEO**, **CRO**. Each Team has its own 90-Day Plan (see PPC/SEO/CRO 90-Day Plan), its own Gantt, and its own Overview scorecard slide. A client may have any subset of the three Teams active, detected from which plan URLs are present in their Client Context File. Each Team's section opens with a gold section separator: "Paid Media" (PPC), "Organic SEO" (SEO), "CRO UX" (CRO).
 _Avoid_: "vertical", "workstream" (Workstream already means something narrower — a category of plan task)
 
 **Monthly Report Skeleton**:
-The first phase of building a Monthly Report, run by the **Client Services** team via the `d4-monthly-skeleton` skill. Produces the deck's structural sections for every active Team — a section separator, Overview scorecard(s), Action Kanban, and Gantt — with real LLM-written overview commentary, but no Top Level Trends. Calls `generate_skeleton_pptx`, which renders a real draft PPTX (both Detailed and Presentation variants) for review and persists the confirmed content to `storage/{client}_skeleton_content.json` as the checkpoint the Insights phase builds on.
+The first phase of building a Monthly Report, run by the **Client Services** team via the `d4-monthly-skeleton` skill. Produces the deck's structural sections for every active Team — a section separator, Overview scorecard(s), and Gantt — with real LLM-written overview commentary, but no Top Level Trends. Calls `generate_skeleton_pptx`, which renders a real draft PPTX (both Detailed and Presentation variants) for review and persists the confirmed content to `storage/{client}_skeleton_content.json` as the checkpoint the Insights phase builds on.
 _Avoid_: "skeleton report", "draft deck" on its own (always qualify as "the skeleton draft")
 
 **Monthly Report Insights**:
@@ -157,11 +157,11 @@ _Avoid_: quarterly plan, sprint plan, 90-day plan (ambiguous — always prefix w
 
 **CRO 90-Day Plan**:
 A per-client Google Sheet tracking all CRO delivery tasks across a 90-day window. Same tab/status structure as the PPC plan. Columns are parsed by header name (not position) because the column count varies across clients. Per-week hour allocations follow the same Monday-date header convention. Sheet URL stored in the Client Context File under `## Plans`. Claude passes it to `fetch_cro_plan_data` as a `sheet_url` parameter at runtime.
-Task schema: `name`, `idea`, `hypothesis`, `objective`, `workstream` (→ rendered as `platform` on Kanban/Gantt), `facs`, `test_or_jdi`, `category` (`"Active Workstream"` or `"BAU"`), `status`, `start_date`, `end_date`, `schedule`. RICE fields (`reach`, `impact`, `confidence`, `effort`, `score`) are included when present in the sheet.
+Task schema: `name`, `idea`, `hypothesis`, `objective`, `workstream` (→ rendered as `platform` on the Gantt), `facs`, `test_or_jdi`, `category` (`"Active Workstream"` or `"BAU"`), `status`, `start_date`, `end_date`, `schedule`. RICE fields (`reach`, `impact`, `confidence`, `effort`, `score`) are included when present in the sheet.
 _Avoid_: quarterly plan, sprint plan
 
 **SEO 90-Day Plan**:
-A per-client Google Sheet tracking SEO delivery tasks, typically covering a 12-month rolling window. Unlike PPC/CRO plans, there are no explicit `Start Date`, `End Date`, or `Status` columns, and cells contain no hour allocations. Active periods are indicated by cell background colour `#fff2cc`; start and end dates are inferred from the first and last coloured cell per task row. Status is inferred from today's date: future → `"Scheduled"`, overlapping today → `"In Progress"`, past → `"Complete"`. Section headers (Tech, Content, Hygiene, Dev Briefs, Indexability, Optimisations, Planning) act as the `platform` grouping on Kanban/Gantt slides. All tasks are treated as `"Active Workstream"` for Gantt filtering. Sheet URL stored in the Client Context File under `## Plans`. Claude passes it to `fetch_seo_plan_data` as a `sheet_url` parameter at runtime. The tool uses `fetch_sheet_metadata(params={"includeGridData": "true"})` to read cell background colours.
+A per-client Google Sheet tracking SEO delivery tasks, typically covering a 12-month rolling window. Unlike PPC/CRO plans, there are no explicit `Start Date`, `End Date`, or `Status` columns, and cells contain no hour allocations. Active periods are indicated by cell background colour `#fff2cc`; start and end dates are inferred from the first and last coloured cell per task row. Status is inferred from today's date: future → `"Scheduled"`, overlapping today → `"In Progress"`, past → `"Complete"`. Section headers (Tech, Content, Hygiene, Dev Briefs, Indexability, Optimisations, Planning) act as the `platform` grouping on the Gantt slide. All tasks are treated as `"Active Workstream"` for Gantt filtering. Sheet URL stored in the Client Context File under `## Plans`. Claude passes it to `fetch_seo_plan_data` as a `sheet_url` parameter at runtime. The tool uses `fetch_sheet_metadata(params={"includeGridData": "true"})` to read cell background colours.
 Task schema: `name`, `desc`, `category` (always `"Active Workstream"`), `status` (inferred), `start_date`, `end_date`, `platform` (section header).
 _Avoid_: quarterly plan, sprint plan
 
@@ -184,11 +184,11 @@ A Claude skill (`ppc-90day-import`) run in the final week of the preceding month
 A Claude skill (`ppc-90day-check`) that compares the current 90-day plan against live Scoro tasks and time entries. Surfaces gaps — missing tasks, missing time entries, status mismatches, stale entries — and resolves them conversationally with the user before writing any changes.
 
 **Delivery Recap**:
-A narrative slide in the Monthly Report Skeleton ("What We've Done"), one per active Team, rendered from the `delivery.done` block in the Teams Content JSON Schema — positioned before that Team's Overview(s). LLM-written headline title; subtitle is always fixed to "Last month's actions" and every bullet gets a ✅ appended by the renderer, not the LLM. Bullets are synthesised from Scoro time entries logged in the reported month under the Client's Scoro project — all logged work is included and blended together without distinguishing plan-matched tasks from ad hoc work. Fetched read-only via direct Scoro MCP calls in `d4-monthly-skeleton` (`get_tasks` filtered by **Scoro Project ID**, then `get_time_entries` per task, filtered to the reported month client-side). Does not modify the Action Kanban or Gantt, which remain rendered from unmodified `plan_json` with no LLM text.
+A narrative slide in the Monthly Report Skeleton ("What We've Done"), one per active Team, rendered from the `delivery.done` block in the Teams Content JSON Schema — positioned before that Team's Overview(s). LLM-written headline title; subtitle is always fixed to "Last month's actions" and every bullet gets a ✅ appended by the renderer, not the LLM. Bullets are synthesised from Scoro time entries logged in the reported month under the Client's Scoro project — all logged work is included and blended together without distinguishing plan-matched tasks from ad hoc work. Fetched read-only via direct Scoro MCP calls in `d4-monthly-skeleton` (`get_tasks` filtered by **Scoro Project ID**, then `get_time_entries` per task, filtered to the reported month client-side). Does not modify the Gantt, which remains rendered from unmodified `plan_json` with no LLM text.
 _Avoid_: delivery summary, WIP (WIP already means something narrower in the Weekly Report's Standard Report Style)
 
 **Delivery Forecast**:
-A narrative slide in the Monthly Report Skeleton ("What We're Going To Do"), one per active Team, rendered from the `delivery.next` block in the Teams Content JSON Schema — positioned between that Team's Action Kanban and Gantt. Title and subtitle are always fixed ("What's next?" / "Next priority actions") regardless of input, since there's no story yet to headline. LLM-written bullets are synthesised from the 90-day plan's schedule for the upcoming calendar month — reuses the `plan_json` already fetched for the Action Kanban/Gantt, no separate fetch required.
+A narrative slide in the Monthly Report Skeleton ("What We're Going To Do"), one per active Team, rendered from the `delivery.next` block in the Teams Content JSON Schema — positioned directly before that Team's Gantt. Title and subtitle are always fixed ("What's next?" / "Next priority actions") regardless of input, since there's no story yet to headline. LLM-written bullets are synthesised from the 90-day plan's schedule for the upcoming calendar month — reuses the `plan_json` already fetched for the Gantt, no separate fetch required.
 
 ## Flagged ambiguities
 

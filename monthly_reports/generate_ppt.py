@@ -51,6 +51,14 @@ C = {
     "grey":   RGBColor(0xD9, 0xD9, 0xD9),
 }
 
+# ── COMMENTARY BOX LAYOUT ──────────────────────────────────────────────────────
+# Content area on the TITLE_AND_BODY layout, shared with the KPI box placement below.
+CONTENT_LEFT   = Inches(0.6)
+CONTENT_TOP    = Inches(1.30)
+CONTENT_BOTTOM = Inches(4.62)
+ASSET_GAP_X    = Inches(0.3)
+ASSET_GAP_Y    = Inches(0.15)
+
 _PLATFORM_ALIASES = {
     'Meta Ads (Facebook/Instagram)': 'Facebook Ads',
     'Meta Ads (Facebook / Instagram)': 'Facebook Ads',
@@ -106,6 +114,32 @@ def _populate_bullets(tf, bullets, size=Pt(12)):
     for p in tf.paragraphs:
         for run in p.runs:
             run.font.size = size
+
+
+def _scaled_bullet_size(width, height):
+    """Bullet font size scaled to the commentary box's area: Pt(12) at the
+    narrowest box (beside a chart) up to Pt(18) at the full-slide box (no
+    chart or KPIs alongside it)."""
+    min_area = Inches(4.1) * (CONTENT_BOTTOM - CONTENT_TOP)
+    max_area = (Inches(9.4) - CONTENT_LEFT) * (CONTENT_BOTTOM - CONTENT_TOP)
+    t = (width * height - min_area) / (max_area - min_area)
+    t = max(0.0, min(1.0, t))
+    return Pt(round(12 + t * 6))
+
+
+def _fit_commentary_box(prs, slide, bullets, right=None, bottom=None):
+    """Resize the bullets placeholder to fill the space available on the slide,
+    stopping short of a chart or KPI boxes when present, and scale its font
+    size to match the resulting box."""
+    try:
+        ph = slide.placeholders[1]
+    except (KeyError, IndexError):
+        return
+    ph.left   = CONTENT_LEFT
+    ph.top    = CONTENT_TOP
+    ph.width  = (right if right is not None else prs.slide_width - Inches(0.6)) - CONTENT_LEFT
+    ph.height = (bottom if bottom is not None else CONTENT_BOTTOM) - CONTENT_TOP
+    _populate_bullets(ph.text_frame, bullets, size=_scaled_bullet_size(ph.width, ph.height))
 
 
 def _add_chart_image(slide, chart_path, left=Inches(5), top=Inches(1.5), width=Inches(4.5)):
@@ -173,15 +207,15 @@ def _add_table_shape(slide, headers, rows, left, top, width, height, status_col=
     return tbl
 
 
-def _add_kpi_boxes(slide, kpis, start_x=Inches(7.1), start_y=None,
+KPI_BOX_START_X = Inches(7.1)
+
+
+def _add_kpi_boxes(slide, kpis, start_x=KPI_BOX_START_X, start_y=None,
                    box_w=Inches(2.5), box_h=Inches(0.95), gap=Inches(0.1)):
     if start_y is None:
         n = len(kpis)
         total_h = n * box_h + (n - 1) * gap
-        # Body content area on TITLE_AND_BODY layout: top=1.30", bottom=4.62"
-        body_top    = Inches(1.30)
-        body_bottom = Inches(4.62)
-        start_y = body_top + (body_bottom - body_top - total_h) / 2
+        start_y = CONTENT_TOP + (CONTENT_BOTTOM - CONTENT_TOP - total_h) / 2
 
     box_colours = [C["gold"], C["orange"], C["teal"], C["dark"]]
 
@@ -227,13 +261,17 @@ def _add_kpi_boxes(slide, kpis, start_x=Inches(7.1), start_y=None,
         run3.font.color.rgb = C["dark"]
 
 
+def _kpi_horizontal_top(prs, box_h=Inches(1.1)):
+    return prs.slide_height - box_h - Inches(0.25)
+
+
 def _add_kpi_boxes_horizontal(slide, prs, kpis, top=None, box_h=Inches(1.1), gap=Inches(0.15)):
     n = len(kpis)
     margin = Inches(0.5)
     total_w = prs.slide_width - 2 * margin
     box_w = (total_w - (n - 1) * gap) // n
     if top is None:
-        top = prs.slide_height - box_h - Inches(0.25)
+        top = _kpi_horizontal_top(prs, box_h)
     box_colours = [C["gold"], C["orange"], C["teal"], C["dark"]]
 
     for i, (label, data) in enumerate(kpis):
@@ -455,10 +493,7 @@ def slide_commentary(prs, title, summary, bullets):
         _set_text(slide.placeholders[4].text_frame, summary)
     except (KeyError, IndexError):
         pass
-    try:
-        _populate_bullets(slide.placeholders[1].text_frame, bullets)
-    except (KeyError, IndexError):
-        pass
+    _fit_commentary_box(prs, slide, bullets)
     return slide
 
 
@@ -500,11 +535,9 @@ def slide_chart_commentary(prs, title, summary, bullets, chart_path, date_label=
         _set_text(slide.placeholders[4].text_frame, summary)
     except (KeyError, IndexError):
         pass
-    try:
-        _populate_bullets(slide.placeholders[1].text_frame, bullets)
-    except (KeyError, IndexError):
-        pass
-    _add_chart_image(slide, chart_path)
+    chart_left = Inches(5)
+    _fit_commentary_box(prs, slide, bullets, right=chart_left - ASSET_GAP_X)
+    _add_chart_image(slide, chart_path, left=chart_left)
     return slide
 
 
@@ -520,10 +553,7 @@ def slide_scorecard_commentary(prs, title, summary, bullets, kpis, date_label=No
         _set_text(slide.placeholders[4].text_frame, summary)
     except (KeyError, IndexError):
         pass
-    try:
-        _populate_bullets(slide.placeholders[1].text_frame, bullets)
-    except (KeyError, IndexError):
-        pass
+    _fit_commentary_box(prs, slide, bullets, right=KPI_BOX_START_X - ASSET_GAP_X)
     _add_kpi_boxes(slide, kpis)
     return slide
 
@@ -544,14 +574,8 @@ def slide_scorecard_horizontal(prs, title, summary, bullets, kpis, date_label=No
         _set_text(slide.placeholders[4].text_frame, summary)
     except (KeyError, IndexError):
         pass
-    # Constrain bullets to upper portion — KPI row occupies bottom ~1.4"
-    try:
-        ph = slide.placeholders[1]
-        ph.top    = Inches(1.30)
-        ph.height = Inches(3.20)
-        _populate_bullets(ph.text_frame, bullets)
-    except (KeyError, IndexError):
-        pass
+    # Constrain bullets to the space above the KPI row, which sits at the bottom.
+    _fit_commentary_box(prs, slide, bullets, bottom=_kpi_horizontal_top(prs) - ASSET_GAP_Y)
     _add_kpi_boxes_horizontal(slide, prs, kpis)
     return slide
 
@@ -1460,28 +1484,26 @@ def _render_trend_slide(prs, client, trend, bullet_key='bullets'):
 # Teams appear in the deck in this fixed order regardless of the order they were
 # confirmed in. Only teams present in teams_content['teams'] get a section at all.
 _TEAM_ORDER = ['ppc', 'seo', 'cro']
-_TEAM_SECTION_LABEL = {'ppc': 'Paid Media', 'seo': 'SEO', 'cro': 'CRO'}
+_TEAM_SECTION_LABEL = {'ppc': 'Paid Media', 'seo': 'Organic SEO', 'cro': 'CRO UX'}
 
 
 def _overview_defaults(data_key):
     if data_key == 'organic_data':
-        return 'Organic Performance', 'Organic Performance'
+        return 'Organic Performance'
     if data_key == 'cro_data':
-        return 'CRO Overview', 'CRO Overview'
-    return 'Performance Overview', 'Performance'
+        return 'CRO Overview'
+    return 'Performance'
 
 
 def _render_team_overviews(prs, client, overviews, bullet_key):
     for item in overviews:
-        default_section_title, default_title = _overview_defaults(item['data_key'])
+        default_title = _overview_defaults(item['data_key'])
         template      = item.get('template', 'scorecard_vertical')
         kpis          = _kpis_for_overview(client, item)
         date_label    = _resolve_overview_date_label(client, item)
-        section_title = item.get('section_title', default_section_title)
         title         = item.get('title', default_title)
         summary       = item.get('summary', '')
         bullets       = item.get(bullet_key, item.get('bullets', []))
-        slide_section_separator(prs, section_title, variant='gold')
         if kpis:
             _render_overview_slide(prs, client, template, title=title, summary=summary,
                                    bullets=bullets, kpis=kpis, date_label=date_label)
@@ -1519,8 +1541,7 @@ def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
     Monthly Report Skeleton draft (no trends) and the final deck (ppc block
     carries trends merged in by generate_ppt). `delivery` is optional and, per
     team, renders as Delivery Recap before the overviews and Delivery Forecast
-    between the Action Kanban and the Gantt — see
-    _render_delivery_recap/_render_delivery_forecast."""
+    before the Gantt — see _render_delivery_recap/_render_delivery_forecast."""
     template_path = os.path.join(PROJECT_ROOT, "slides", "template.pptx")
     shutil.copy(template_path, output_path)
     prs = Presentation(output_path)
@@ -1537,25 +1558,20 @@ def _assemble_pptx(client, teams_content, output_path, bullet_key='bullets'):
         if not block:
             continue
 
-        slide_section_separator(prs, _TEAM_SECTION_LABEL[team], variant='navy')
+        slide_section_separator(prs, _TEAM_SECTION_LABEL[team], variant='gold')
         delivery = block.get('delivery')
         _render_delivery_recap(prs, delivery, bullet_key)
         _render_team_overviews(prs, client, block.get('overviews', []), bullet_key)
 
         if team == 'ppc':
             trends = block.get('trends', [])
-            if trends:
-                slide_section_separator(prs, 'Top Level Trends', variant='gold')
-                for trend in trends:
-                    _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
+            for trend in trends:
+                _render_trend_slide(prs, client, trend, bullet_key=bullet_key)
 
         plan_json     = block.get('plan_json')
         current_tasks = _extract_current_tasks(plan_json, team=team) if plan_json else []
         all_tasks, plan_start, plan_end = _extract_all_plan_tasks(plan_json, team=team) if plan_json else ([], None, None)
         if current_tasks or all_tasks:
-            slide_section_separator(prs, 'Plan Overview', variant='gold')
-            if current_tasks:
-                slide_action_kanban(prs, 'Plan Overview', current_tasks)
             _render_delivery_forecast(prs, delivery, bullet_key)
             if all_tasks:
                 slide_planning_gantt(prs, '90 Day Plan', all_tasks, plan_start, plan_end)
@@ -1585,9 +1601,9 @@ def _skeleton_content_path(client_name):
 
 
 def generate_skeleton_ppt(client_name, teams_content, output_path=None):
-    """Build the Monthly Report Skeleton draft — overview, Action Kanban, and Gantt for
-    every active Team, no trends — and persist teams_content as the checkpoint that
-    generate_ppt later merges PPC trends into. See ADR 0012."""
+    """Build the Monthly Report Skeleton draft — overview and Gantt for every active
+    Team, no trends — and persist teams_content as the checkpoint that generate_ppt
+    later merges PPC trends into. See ADR 0012."""
     client = _load_client_data(client_name)
 
     with open(_skeleton_content_path(client_name), "w", encoding="utf-8") as f:
