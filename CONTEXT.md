@@ -86,6 +86,12 @@ The team that owns the Monthly Report Skeleton phase — confirms which Teams ar
 **Traps & Tripwires**:
 An automated health-check report that runs budget pacing, conversion tracking, and platform-specific checks across all clients, delivered to Slack.
 
+**Bespoke Check**:
+A Traps & Tripwires check written for exactly one Client rather than the shared checks every Client gets. Gated by `client['name']`, since neither `config.json` nor the Client Context File carry per-client feature toggles. Two wiring shapes exist, chosen by how much the check needs to render:
+- A single check that fits the standard `(status, detail)` shape and belongs alongside a Client's normal checks is added inline to `run_checks()` in `main.py`, gated by name — e.g. Empress Mills' **ROAS Volatility** check, which also extends its result to `(status, detail, direction)` so `build_client_block` can pick a 📈/📉 emoji instead of the standard pass/warn/fail emoji (this check is informational only and never fails or warns).
+- A check that expands into several rows per Client instead lives in its own module and posts as a separate Slack sub-thread — e.g. Forbes' per-department budget pacing (`forbes.py`).
+_Avoid_: client-specific check, custom check
+
 ### Comparison windows
 
 **MoM (Month-on-Month)**:
@@ -132,6 +138,7 @@ _Avoid_: "work order log", "WOL log" — there is no separate log; WOL messages 
 - **`config.json`** is the authoritative config for **Traps & Tripwires only** — all skill-triggered workflows (weekly reports, monthly reports, plan tools) get their config from the **Client Context File** via Claude at runtime
 - **Client Context Files** are generated from `config.json` via `scripts/generate_client_contexts.py` and uploaded to each client's Claude Enterprise project; regenerate and re-upload after any config change
 - A **Client** has at most one **Scoro Project ID**, shared across all three **Teams** — not one per Team
+- `ppc-90day-import` and `ppc-90day-check` read all shared client config from the **90-Day Plan Context Doc**, not from `config.json` or the per-client **Client Context File**
 
 ## Example dialogue
 
@@ -148,8 +155,12 @@ A per-project markdown file in `storage/client_contexts/` (e.g. `falkn.md`), add
 _Avoid_: client config file, context doc
 
 **Scoro Project ID**:
-The Scoro `projectId` for a Client, shared across all three Teams (PPC/SEO/CRO) rather than one per Team — one Client has exactly one Scoro project. Stored in the Client Context File's `Scoro:` block (alongside `Responsible User ID`, `Weekly Report Day`, `Active Work Day`), generated from `SCORO_CONFIG` in `scripts/generate_client_contexts.py`. Read by `d4-monthly-skeleton` only. `ppc-90day-import` and `ppc-90day-check` are a separate operational context (live Scoro task/time-entry writes, not report generation) and deliberately keep their own independent hardcoded Client→projectId table — this is a second, intentionally separate source for the same value, not drift to fix. If absent for a Client in the Client Context File, Scoro-dependent content (Delivery Recap/Forecast, Scoro-informed commentary) is skipped gracefully with a note, the same pattern used when GA4 Organic Search data is missing for an SEO Overview.
+The Scoro `projectId` for a Client, shared across all three Teams (PPC/SEO/CRO) rather than one per Team — one Client has exactly one Scoro project. Stored in the Client Context File's `Scoro:` block (alongside `Responsible User ID`, `Weekly Report Day`, `Active Work Day`), generated from `SCORO_CONFIG` in `scripts/generate_client_contexts.py`. Read by `d4-monthly-skeleton` only. `ppc-90day-import` and `ppc-90day-check` are a separate operational context (live Scoro task/time-entry writes, not report generation) and deliberately keep their own independent Client→projectId table in the **90-Day Plan Context Doc** — this is a second, intentionally separate source for the same value, not drift to fix. If absent for a Client in the Client Context File, Scoro-dependent content (Delivery Recap/Forecast, Scoro-informed commentary) is skipped gracefully with a note, the same pattern used when GA4 Organic Search data is missing for an SEO Overview.
 _Avoid_: Scoro config, project mapping
+
+**90-Day Plan Context Doc**:
+A Google Doc (`ppc-90day-context`, mirrored in this repo at `.claude/enterprise/ppc-90day-context.txt` as a plain-text, copy-paste-ready reference) holding the shared config `ppc-90day-import` and `ppc-90day-check` need: the Scoro Config table (`projectId`, `responsibleUserId`, `weeklyReportDay`, `activeWorkDay` per client), the Plan Links table (90-day plan sheet URLs per client), and the Bank Holidays table. Both skills run in the shared Scoro Claude Enterprise project and have no access to per-client Claude project knowledge, so this Doc — not `config.json`, not the per-client **Client Context File** — is their only source for these fields. Read live via the Google Drive connector at the start of each skill run, not uploaded as a static knowledge file. Hand-maintained directly in the Doc; unlike the Client Context File, there is no generator script — the repo `.txt` mirror is a manually-updated reference copy, not a build artifact. Supersedes the earlier `ppc-90day-plans.md`/`.txt` (plan URLs only, embedded Scoro config duplicated separately in both skill files).
+_Avoid_: plan links doc, Scoro config table (ambiguous once these tables moved into one Doc — always say "90-Day Plan Context Doc")
 
 **PPC 90-Day Plan**:
 A per-client Google Sheet tracking all PPC delivery tasks across a 90-day window. Each row is a task; columns from week 1 onward contain the planned hours for that task in that week. The first sheet tab is the current plan (`plan_status: "current"`); older tabs are historical. Sheet URL stored in the Client Context File under `## Plans`. Claude passes it to `fetch_plan_data` as a `sheet_url` parameter at runtime.

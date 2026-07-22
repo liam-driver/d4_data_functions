@@ -22,7 +22,7 @@ If the user says none, skip to Phase 0B.
 For each client and date provided:
 
 1. Record: `client`, `date` (YYYY-MM-DD), `duration` (hours). If duration is not given, use the hours from the 90-day plan's `Monthly Reporting` entry for that week when fetched in Phase 1 — note it as **TBC from plan** for now and resolve it once the plan is fetched. If the plan also shows no hours for that week, ask the user.
-2. Validate the date: it must not be a weekend or bank holiday. If it is, flag it immediately and ask for a revised date.
+2. Validate the date against the Bank Holidays table in `ppc-90day-context` (the shared context Doc, read via the Google Drive connector): it must not be a weekend or a listed bank holiday. If it is, flag it immediately and ask for a revised date.
 3. Stage a time entry for `{Client}: PPC: Monthly Reporting` on the given date. Task lookup happens in Phase 1 alongside the rest of the Scoro data — mark it as **pending lookup** for now.
 
 > **Monthly reports staged this week:**
@@ -45,29 +45,44 @@ Later, when a day's schedule looks light or shifted, consult this context first.
 
 > _(Ad hoc context: "[task name]" may account for [X]h on this day — noting as explained unless you want to revisit.)_
 
+**Creating an ad hoc task (when the user confirms one is needed):**
+
+1. **Check for an existing candidate first.** Before creating anything, search Scoro tasks in the relevant project for a name match or a stale/generic placeholder (e.g. a task with no client prefix). If found, propose reusing/renaming it rather than creating a duplicate. Present this as an explicit choice to the user — do not decide silently.
+2. **Naming convention:** `{Client}: {Category}: {Task Name}`. Category is normally the team (PPC/SEO/CRO), but the user may specify an alternate label (e.g. "Tracking") for one-off work outside the standard BAU/Weekly/Monthly/Workstreams categories — use it verbatim in place of the team label if given.
+3. **Confirm before creating, per task:**
+   - Billable? (`billable` / `non_billable` — never default without asking)
+   - Needs invoice linking? (invoice ID, or explicitly unlinked)
+   - Duration (convert to seconds — see table below)
+   - Date(s) and, if the day is already busy, resolve via the **Daily Capacity Check** (Phase 2.5)
+4. **Duration reference (hours → seconds):**
+
+   | Hours | Seconds |
+   |---|---|
+   | 0.5h | 1,800 |
+   | 0.75h | 2,700 |
+   | 1h | 3,600 |
+   | 1.5h | 5,400 |
+   | 2h | 7,200 |
+   | 3h | 10,800 |
+   | 4h | 14,400 |
+   | 6h | 21,600 |
+   | 8h | 28,800 |
+
+5. Stage the task + time entry alongside everything else — do not write until the full staged-changes summary (Phase 4) is confirmed.
+
 ---
 
 ## Phase 1 — Fetch data
 
 **1a. Read client config**
 
-Look up the specified client in the table below:
+Using the Google Drive connector, find and read the `ppc-90day-context` Doc (shared context for both 90-day skills). Look up the specified client in its Scoro Config table:
 - `projectId` for the specified client
 - `responsibleUserId`
 - `weeklyReportDay` — day of week for Weekly Reporting time entries only
 - `activeWorkDay` — day of week for BAU, Workstream, and Monthly Reporting time entries
 
-| Client | Project ID | Responsible User ID | Report Day | Active Work Day |
-|---|---|---|---|---|
-| InstaGroup | 633 | 26 | Monday | Monday |
-| FALKN | 675 | 26 | Wednesday | Thursday |
-| PaintNuts | 621 | 26 | Wednesday | Wednesday |
-| Revival Beds | 606 | 26 | Thursday | Friday |
-| Defib | 614 | 26 | Monday | Tuesday |
-| BalmersGM | 605 | 26 | Thursday | Tuesday |
-| Harrisons Direct | 637 | 26 | Monday | Thursday |
-
-If the client is not listed, stop and ask the user to supply the missing fields.
+If the client is not listed, or a field is blank, stop and ask the user to supply the missing fields.
 
 **1b. Ask for client**
 
@@ -75,8 +90,10 @@ If the client is not listed, stop and ask the user to supply the missing fields.
 
 **1c. Fetch plan and Scoro state in parallel**
 
-1. Call `fetch_plan_data(client_name)` — use only the tab where `plan_status == "current"`. Each task has `name`, `category`, `status`, `schedule` (`{YYYY-MM-DD: hours}`), `start_date`, `end_date`.
+1. Look up the client's PPC plan URL in the Plan Links table of `ppc-90day-context`. If missing, stop and ask the user for it. Call `fetch_plan_data(sheet_url)` — use only the tab where `plan_status == "current"`. Each task has `name`, `category`, `status`, `schedule` (`{YYYY-MM-DD: hours}`), `start_date`, `end_date`.
 2. Call `get_tasks` with `filters.projectIds: [projectId]` — all Scoro tasks for this client's project.
+
+This is the complete, correct call pattern for this skill — no additional project-scoping step is required beyond what's above.
 
 **Company name sanity check:** Immediately after the `get_tasks` call, inspect the `companyName` field on the returned tasks. If it does not match the expected client, stop immediately:
 
@@ -130,9 +147,21 @@ Time entries scheduled for future weeks on tasks where the plan now shows 0 hour
 
 ---
 
+## Phase 2.5 — Daily Capacity Check
+
+Door4 works an 8-hour day. Before staging **any** new time entry — whether from an ad hoc task (Phase 0B) or a gap fix (Phase 3) — sum the client's existing logged/scheduled hours for that user on that date.
+
+If the addition would push the day past 8h, stop and ask:
+
+> "[Day] is already at {X}h before this entry. Adding {Y}h would take it to {X+Y}h. How should I handle it — allow the overtime, use whitespace on [next available day with room], or move something else on [day] to make room?"
+
+Do not silently allow overtime and do not silently reschedule. This applies even when the user has pre-approved the task/duration itself — capacity is a separate confirmation.
+
+---
+
 ## Phase 3 — Conversational resolution
 
-Iterate through **each day** of the check window (Monday through Friday). For each day, gather all planned vs. logged hours across every gap found for that day, then present and resolve them before advancing to the next day.
+Iterate through **each day** of the check window (Monday through Friday). For each day, gather all planned vs. logged hours across every gap found for that day, then present and resolve them before advancing to the next day. Run the Daily Capacity Check (Phase 2.5) before finalising the date/time for any entry.
 
 Before presenting a day's gaps, consult the Phase 0 ad hoc context. If a named ad hoc task plausibly explains a light or shifted schedule for that day, note it as explained (see Phase 0 format) rather than flagging it as a gap.
 
@@ -195,6 +224,8 @@ Execute in this order:
 
 For task creation, use the same field mapping as `ppc-90day-import` Phase 5a.
 For time entries, use the same field mapping as `ppc-90day-import` Phase 5b. Apply the same day-of-week offset from `ppc-90day-import` Phase 4 — Weekly Reporting entries go on `weeklyReportDay`; BAU and Workstream entries go on `activeWorkDay`. Monthly Reporting entries use the exact date confirmed by the user in Phase 0A — do not apply a day-of-week offset.
+
+**Before relying on this shared data:** cross-check `ppc-90day-import`'s client/project table against the org's `Cached_IDs` project doc. These have drifted before (e.g. a client's true API project `id` vs. its display "no." number being recorded differently across the two) and caused a near-miss on a live delete. If they disagree, stop and verify the project via `get_projects` before proceeding — don't pick one source over the other by default.
 
 ---
 

@@ -13,23 +13,13 @@ You are an assistant for D4 Digital's PPC team. When the user invokes this skill
 
 ## Pre-flight: Read the client config
 
-Look up the specified client in the table below. You need:
+Using the Google Drive connector, find and read the `ppc-90day-context` Doc (shared context for both 90-day skills). Look up the specified client in its Scoro Config table. You need:
 - `projectId` — the Scoro project ID
 - `responsibleUserId` — the Scoro user ID of the PPC account manager
 - `weeklyReportDay` — day of week for Weekly and Monthly Reporting time entries
 - `activeWorkDay` — day of week for BAU and Active Workstream time entries
 
-If the client is not in the table, stop and ask the user to supply the missing fields before proceeding.
-
-| Client | Project ID | Responsible User ID | Report Day | Active Work Day |
-|---|---|---|---|---|
-| InstaGroup | 633 | 26 | Monday | Monday |
-| FALKN | 675 | 26 | Wednesday | Thursday |
-| PaintNuts | 621 | 26 | Wednesday | Wednesday |
-| Revival Beds | 606 | 26 | Thursday | Friday |
-| Defib | 614 | 26 | Monday | Tuesday |
-| BalmersGM | 605 | 26 | Thursday | Tuesday |
-| Harrisons Direct | 637 | 26 | Monday | Thursday |
+If the client is not listed, or a field is blank, stop and ask the user to supply the missing fields before proceeding.
 
 ---
 
@@ -53,7 +43,9 @@ Wait for confirmation.
 
 **2a. Fetch plan data**
 
-Call `fetch_plan_data` with `client_name`. This returns a dict keyed by sheet tab name. Use only the entry where `plan_status == "current"`. Each task object has:
+Look up the client's PPC plan URL in the Plan Links table of `ppc-90day-context`. If missing, stop and ask the user for it.
+
+Call `fetch_plan_data` with `sheet_url`. This returns a dict keyed by sheet tab name. Use only the entry where `plan_status == "current"`. Each task object has:
 - `name`, `desc`, `category`, `status`, `start_date`, `end_date`, `platform`
 - `schedule`: `{"YYYY-MM-DD": hours_float, ...}` — one entry per week column where hours > 0
 
@@ -242,18 +234,9 @@ Totals:
 
 All `startDateTime` and `dueDateTime` values must include the correct offset. A wrong offset places entries on the wrong date in Scoro.
 
-## Bank Holidays 2026
+## Bank Holidays
 
-| Date | Holiday |
-|---|---|
-| 2026-01-01 | New Year's Day |
-| 2026-04-03 | Good Friday |
-| 2026-04-06 | Easter Monday |
-| 2026-05-04 | Early May Bank Holiday |
-| 2026-05-25 | Spring Bank Holiday |
-| 2026-08-31 | Summer Bank Holiday |
-| 2026-12-25 | Christmas Day |
-| 2026-12-28 | Boxing Day (substitute) |
+Bank holiday dates live in the Bank Holidays table of `ppc-90day-context` (the shared context Doc, read via the Google Drive connector) — updated there each year, no skill change needed.
 
 Never schedule a time entry on a bank holiday or weekend. If a target week-start falls on a bank holiday, flag it in the draft and ask the user how to handle it — do not silently skip or move the entry.
 

@@ -1,0 +1,54 @@
+PPC 90-DAY PLAN — CONTEXT
+
+Shared reference data for the ppc-90day-import and ppc-90day-check skills.
+Both run in the Scoro project and have no access to per-client Claude
+project knowledge, so this doc is their only source for the fields below.
+Hand-maintained directly in this Doc — there is no generator script for
+this file; update rows here when a client's config changes.
+
+If a client is not listed below, or a field is blank, stop and ask the
+user to supply it before proceeding.
+
+
+SCORO CONFIG
+------------
+Client | Project ID | Responsible User ID | Report Day | Active Work Day
+InstaGroup | 633 | 26 | Monday | Monday
+FALKN | 675 | 26 | Wednesday | Thursday
+PaintNuts | 621 | 26 | Wednesday | Wednesday
+Revival Beds | 606 | 26 | Thursday | Friday
+Defib | 614 | 26 | Monday | Tuesday
+BalmersGM | 605 | 26 | Thursday | Tuesday
+Harrisons Direct | 637 | 26 | Monday | Thursday
+
+
+PLAN LINKS
+----------
+Client | PPC 90-Day Plan URL | SEO 90-Day Plan URL | CRO 90-Day Plan URL
+InstaGroup | | |
+FALKN | | |
+PaintNuts | | |
+Revival Beds | | |
+Defib | | |
+BalmersGM | | |
+Harrisons Direct | | |
+
+SEO and CRO columns are included to future-proof this table if those
+workflows move into Scoro too — for now, CRO/SEO plan tools are
+monthly-only and not used by either 90-day skill.
+
+
+BANK HOLIDAYS 2026
+------------------
+Date | Holiday
+2026-01-01 | New Year's Day
+2026-04-03 | Good Friday
+2026-04-06 | Easter Monday
+2026-05-04 | Early May Bank Holiday
+2026-05-25 | Spring Bank Holiday
+2026-08-31 | Summer Bank Holiday
+2026-12-25 | Christmas Day
+2026-12-28 | Boxing Day (substitute)
+
+Never schedule a time entry on a bank holiday or weekend. Add next
+year's table here each December — no code or skill change needed.
