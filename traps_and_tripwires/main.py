@@ -11,6 +11,7 @@ from core.get_config import init_clients
 from core.config_dates import config_dates
 from core.get_funnel_data import initialise_df, apply_filters
 from core.get_run_rate import tat_get_run_rate
+from core.safe_div import safe_div
 from weekly_reports.generate_df import *
 from traps_and_tripwires.forbes import (
     load_forbes_department_budgets,
@@ -162,14 +163,64 @@ def check_brand_spend_split(client, df):
     return 'pass', " · ".join(parts)
 
 
+def check_roas_volatility(client, df):
+    """Bespoke to Empress Mills only — not a general Ecommerce check. Returns
+    (status, detail, direction). direction is 'up'/'down'/None; None means there's
+    no valid prior-7-day ROAS to compare against (shown with a neutral emoji)."""
+    mtd_range = {
+        "start_date": client['start_date'],
+        "end_date": client['end_date'],
+    }
+    mtd_df = apply_filters(df.copy(), client, ['Ad Platform', 'Date'], mtd_range)
+    mtd_cost = pd.to_numeric(mtd_df.iloc[:, 11], errors='coerce').sum()
+    mtd_revenue = pd.to_numeric(mtd_df.iloc[:, 13], errors='coerce').sum()
+
+    if mtd_cost == 0:
+        return 'skip', 'No spend recorded MTD', None
+
+    mtd_roas = safe_div(mtd_revenue, mtd_cost, multiplier=100)
+    detail = f"ROAS MTD: {mtd_roas:.0f}%"
+
+    # Trend window is a rolling 14-day lookback from end_date, independent of the
+    # MTD window above — it can dip into the previous month, which is fine since
+    # this is measuring recent volatility rather than an MTD-confined split.
+    trend_range = {
+        "start_date": client['end_date'] - timedelta(days=13),
+        "end_date": client['end_date'],
+    }
+    trend_df = apply_filters(df.copy(), client, ['Ad Platform', 'Date'], trend_range)
+    is_last_7 = trend_df['Date'] >= client['end_date'] - timedelta(days=6)
+    last_7, prev_7 = trend_df.loc[is_last_7], trend_df.loc[~is_last_7]
+
+    prev_7_cost = pd.to_numeric(prev_7.iloc[:, 11], errors='coerce').sum()
+    if prev_7_cost == 0:
+        return 'pass', detail + " (prior 7d had no spend to compare)", None
+
+    last_7_cost = pd.to_numeric(last_7.iloc[:, 11], errors='coerce').sum()
+    last_7_revenue = pd.to_numeric(last_7.iloc[:, 13], errors='coerce').sum()
+    prev_7_revenue = pd.to_numeric(prev_7.iloc[:, 13], errors='coerce').sum()
+
+    last_7_roas = safe_div(last_7_revenue, last_7_cost, multiplier=100)
+    prev_7_roas = safe_div(prev_7_revenue, prev_7_cost, multiplier=100)
+    relative_change = safe_div(last_7_roas - prev_7_roas, prev_7_roas, multiplier=100)
+
+    direction = 'down' if relative_change < 0 else 'up'
+    arrow = '↓' if direction == 'down' else '↑'
+    detail += f" ({arrow} {abs(relative_change):.1f}% vs prior 7d)"
+    return 'pass', detail, direction
+
+
 def run_checks(client):
     df = initialise_df(client)
-    return [
+    checks = [
         {"name": "Budget Pacing",        "result": check_budget_pacing(client, df)},
         {"name": "Conversion Tracking",  "result": check_conversion_tracking(client, df)},
         {"name": "Campaign Spend",        "result": check_campaign_spend(client, df)},
         {"name": "Brand Spend Split",     "result": check_brand_spend_split(client, df)},
     ]
+    if client['name'] == 'Empress Mills':
+        checks.append({"name": "ROAS Volatility", "result": check_roas_volatility(client, df)})
+    return checks
 
 
 # ── SLACK ─────────────────────────────────────────────────────────────────────
@@ -244,8 +295,12 @@ def build_client_block(client_name, checks):
 
     lines = [f"*{client_name}* {STATUS_EMOJI[worst]}"]
     for check in checks:
-        status, detail = check["result"]
-        emoji = "" if (check["name"] == "Brand Spend Split" and status == "pass") else STATUS_EMOJI[status]
+        if check["name"] == "ROAS Volatility":
+            status, detail, direction = check["result"]
+            emoji = {"up": "📈", "down": "📉"}.get(direction, STATUS_EMOJI[status])
+        else:
+            status, detail = check["result"]
+            emoji = "" if (check["name"] == "Brand Spend Split" and status == "pass") else STATUS_EMOJI[status]
         lines.append(f"• {check['name']} {emoji}".rstrip())
         if detail:
             lines.append(f"   • {detail}")
