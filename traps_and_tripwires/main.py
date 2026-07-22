@@ -210,6 +210,17 @@ def check_roas_volatility(client, df):
     return 'pass', detail, direction
 
 
+# Clients whose real-world account is split across multiple config.json rows
+# / Funnel Import worksheets (see docs/adr/0007), sharing one slack_channel_id.
+# Same pattern as PROJECT_GROUPS/REPORT_STYLES in generate_client_contexts.py —
+# config.json is regenerated from the Config sheet on every run and can't hold
+# hand-added grouping fields, so the grouping lives here in code instead.
+MERGE_GROUPS = {
+    "Harrisons Direct": ["Harrisons Direct (Registrations)", "Harrisons Direct (Revenue)"],
+    "Revival Beds": ["Revival Beds (Transactions)", "Revival Beds (Showroom Visits)"],
+}
+
+
 def run_checks(client):
     df = initialise_df(client)
     checks = [
@@ -332,6 +343,38 @@ def build_summary_blocks(client_results, date_str):
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(sections)}}]
 
 
+def merge_grouped_clients(client_results):
+    """Collapse MERGE_GROUPS members into one entry each, so a real-world
+    account split across multiple config.json rows gets one Slack message
+    instead of one per row. Budget Pacing / Campaign Spend / Brand Spend
+    Split are identical across a group's members (same underlying ad
+    account), so they're taken from whichever member ran first; Conversion
+    Tracking genuinely differs per member (different conversion goal) and is
+    kept for each, relabeled with that member's distinguishing suffix."""
+    results_by_name = dict(client_results)
+    merged = []
+    consumed = set()
+
+    for group_name, members in MERGE_GROUPS.items():
+        present = [m for m in members if m in results_by_name]
+        if not present:
+            continue
+        consumed.update(present)
+
+        shared_checks = [c for c in results_by_name[present[0]] if c["name"] != "Conversion Tracking"]
+        conversion_checks = []
+        for member in present:
+            label = member[len(group_name):].strip().strip("()")
+            for check in results_by_name[member]:
+                if check["name"] == "Conversion Tracking":
+                    conversion_checks.append({"name": f"Conversion Tracking — {label}", "result": check["result"]})
+
+        merged.append((group_name, shared_checks + conversion_checks))
+
+    ungrouped = [(name, checks) for name, checks in client_results if name not in consumed]
+    return merged + ungrouped
+
+
 def build_thread_blocks(client_results):
     blocks = []
     for client_name, checks in sorted(client_results, key=lambda x: x[0]):
@@ -381,6 +424,13 @@ def main():
                 forbes_dept_results = run_forbes_department_checks(client, forbes_df, forbes_dept_budgets)
         except Exception as e:
             log_error(f"Checks failed for {client['name']}: {e}")
+
+    client_results = merge_grouped_clients(client_results)
+    for group_name, members in MERGE_GROUPS.items():
+        for member in members:
+            if member in client_channels:
+                client_channels[group_name] = client_channels[member]
+                break
 
     summary_blocks = build_summary_blocks(client_results, date_str)
     summary_ts = post_slack_message(slack_token, slack_channel, summary_blocks)
